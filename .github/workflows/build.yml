@@ -1,12 +1,7 @@
-name: Wails Windows Build
+name: Wails Windows/Mac Build
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - develop  # メインブランチ名
-    tags:
-      - 'v*'   # v1.0.0 などのタグを打った時も動くように設定
 
 jobs:
   build:
