@@ -1,6 +1,7 @@
 name: Wails Windows Build
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - develop  # メインブランチ名
@@ -11,7 +12,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [windows-latest]
+        os: [windows-latest, macos-latest]
     
     runs-on: ${{ matrix.os }}
 
