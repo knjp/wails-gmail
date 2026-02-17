@@ -39,6 +39,7 @@ build/linux/
 wailsjs/
 # Wailsのフロントエンド生成物はwails dev/build時に自動生成されるため除外
 frontend/wailsjs/
+package.json.md5
 
 # --- Frontend (Node.js) ---
 frontend/node_modules/
