@@ -1,59 +1,478 @@
-#app {
-    height: 100vh;
-    text-align: center;
+:root {
+  --tab-height: 50px;
+  --sidebar-width: 350px;
+  --accent-blue: #2563eb;
+  --bg-light: #f8fafc;
+  --border-color: #e2e8f0;
 }
 
-#logo {
-    display: block;
-    width: 50%;
-    height: 50%;
-    margin: auto;
-    padding: 10% 0 0;
-    background-position: center;
-    background-repeat: no-repeat;
-    background-size: 100% 100%;
-    background-origin: content-box;
+body, html, #App {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  overflow: hidden; /* 全体のスクロールを禁止 */
+  font-family: 'Inter', system-ui, sans-serif;
 }
 
-.result {
-    height: 20px;
-    line-height: 20px;
-    margin: 1.5rem auto;
+/* 全体の縦積み構造 */
+.container {
+  display: flex;
+  flex-direction: column; /* タブバーを上、中身を下にする */
+  height: 100vh;
 }
 
-.input-box .btn {
-    width: 60px;
-    height: 30px;
-    line-height: 30px;
-    border-radius: 3px;
-    border: none;
-    margin: 0 0 0 20px;
-    padding: 0 8px;
+/* タブバーの設定 */
+.tab-bar {
+  height: var(--tab-height);
+  background: white;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.tab-btn {
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  border-radius: 6px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.tab-btn.active {
+  background: #eff6ff;
+  color: var(--accent-blue);
+}
+
+/* 3ペインの横並び設定（ここが重要） */
+.main-layout {
+  display: flex;
+  grid-template-columns: 200px 300px 1fr 300px; /* 4つ目のカラムを追加 */
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+/* 一番左：チャンネル (Slackスタイル) */
+.channel-sidebar {
+  width: 200px;
+  background-color: #1a1d21; /* ダークな背景 */
+  color: #d1d2d3;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.sidebar-header {
+  padding: 20px;
+  font-size: 0.8rem;
+  font-weight: bold;
+  color: #9b9da1;
+  background-color: #2d3136;
+}
+
+.search-bar {
+  padding: 8px 20px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.2s;
+}
+
+.channel-item {
+  padding: 8px 20px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.2s;
+}
+
+.channel-item:hover {
+  background-color: #2d3136;
+}
+
+.channel-item.active {
+  background-color: #1164a3; /* Slack風の青 */
+  color: white;
+}
+
+.reload-channels-btn {
+    margin: 15px;
+    padding: 8px;
+    background-color: #f1f5f9;
+    color: #64748b;
+    border: 1px dashed #cbd5e1; /* 点線にして「設定反映」感を出す */
+    border-radius: 6px;
     cursor: pointer;
+    font-size: 0.8rem;
+    transition: all 0.2s;
 }
 
-.input-box .btn:hover {
-    background-image: linear-gradient(to top, #cfd9df 0%, #e2ebf0 100%);
-    color: #333333;
+.reload-channels-btn:hover {
+    background-color: #e2e8f0;
+    color: #1e293b;
+    border-style: solid;
 }
 
-.input-box .input {
+/* 左ペイン：リスト */
+.mail-list-pane {
+  width: 350px;
+  border-right: 1px solid var(--border-color);
+  background: white;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.pane-header {
+  padding: 15px;
+  font-weight: bold;
+  border-bottom: 1px solid var(--border-color);
+  background: #cc9;
+}
+
+.list-container {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* 🌟 未読アイテム：件名を太字にし、左側にアクセントを入れる */
+.unread-item .subject {
+    font-weight: 800; /* どっしり太字 */
+    color: #1e293b;
+}
+
+.unread-item::before {
+    content: "";
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 8px;
+    background-color: #3b82f6; /* 青いドット */
+    border-radius: 50%;
+}
+
+.mail-item {
+  padding: 15px;
+  cursor: pointer;
+  position: relative; /* ドットを配置するために必要 */
+  padding-left: 25px; /* ドットの分だけ余白を空ける */
+}
+
+/*
+.mail-item {
+  padding: 15px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+}
+  */
+
+.mail-item.selected {
+  background-color: #f1f5f9;
+  border-left: 4px solid var(--accent-blue);
+}
+
+.subject {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.mail-meta-row {
+    display: flex;
+    justify-content: space-between; /* 差出人と日付を両端に分ける */
+    margin-top: 4px;
+}
+
+.list-snippet {
+     /* 🌟 WebKit専用の魔法のセット 🌟 */
+    display: -webkit-box;           /* 必須：旧Flexboxボックスモデルを使用 */
+    -webkit-box-orient: vertical;   /* 必須：垂直方向に並べる */
+    -webkit-line-clamp: 3;          /* 必須：最大行数を指定（ここでは2行） */
+    overflow: hidden;               /* 必須：はみ出た分を非表示にする */
+    
+    /* 見栄えの調整（ここはお好みで） */
+    font-size: 0.85rem;
+    line-height: 1.4;               /* 行間を適切に空けると読みやすい */
+    color: #64748b;                 /* 少し薄いグレーで情報の優先度を下げる */
+    margin-top: 4px;
+    word-break: break-all;          /* 長い英単語でも強制改行して2行を守る */ 
+}
+
+.list-snippet2023 {
+    font-size: 0.8rem;
+    line-height: 1.2rem;       /* 1行の高さを明示的に指定 */
+    height: 2.4rem;            /* line-height × 2 で2行分に固定 */
+    overflow: hidden;          /* はみ出した分を隠す */
+    color: #64748b;
+    margin-top: 4px;
+    word-break: break-all;     /* 途中で途切れても良いように */
+    
+    /* 念のため残しておきますが、高さ固定が優先されます */
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.from {
+    font-size: 0.85rem;
+    color: #475569;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.mail-date {
+    font-size: 0.75rem;
+    color: #94a3b8;
+    flex-shrink: 0;
+    margin-left: 10px;
+}
+
+.email-date-detail {
+    font-size: 0.85rem;
+    color: #64748b;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #e2e8f0;
+    padding-bottom: 8px;
+}
+
+.snippet-preview {
+  font-size: 0.8rem;
+  color: #94a3b8;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 右ペイン：本文 */
+.main-content {
+  flex: 1;
+  background: var(--bg-light);
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+}
+
+.email-view {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: white;
+}
+
+.email-header-top {
+    padding: 20px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    background: #c0cc00;
+}
+
+.detail-subject {
+    font-size: 1.4rem;
+    margin-bottom: 8px;
+    color: #1a1a1a;
+}
+
+.detail-meta {
+    font-size: 0.9rem;
+    color: #666;
+}
+
+.detail-from { font-weight: bold; margin-right: 15px; }
+
+.header-actions { display: flex; gap: 8px; }
+
+.ai-info-section {
+    padding: 15px 20px;
+    background-color: #f8fafc; /* さりげないAIセクションの背景色 */
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.ai-summary-content {
+    margin-top: 10px;
+    font-size: 0.95rem;
+    line-height: 1.6;
+    color: #1e293b;
+    border-left: 3px solid #3b82f6;
+    padding-left: 15px;
+}
+
+.email-body-container {
+    flex: 1; /* 残りの高さをすべて使う */
+}
+
+.email-body-frame {
+    width: 100%;
+    height: 100%;
     border: none;
+}
+
+/*  background:#64748b; */
+.email-header {
+  background:#ffffdd;
+  padding: 20px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #94a3b8;
+}
+
+/* 🌟 未読メール：左端に太い青い線を入れて「まだ読んでない」ことを強調 */
+.unread-view {
+    border-left: 5px solid #3b82f6;
+}
+
+/* 🌟 参考情報（自分宛ではない）：背景を少しグレーにし、文字を落ち着かせる */
+.reference-view {
+    background-color: #f9fafb;
+}
+.reference-view .detail-subject {
+    color: #4b5563; /* 少し薄い黒 */
+}
+
+/* 参考情報バッジ */
+.ref-badge {
+    font-size: 0.7rem;
+    background-color: #e2e8f0;
+    color: #475569;
+    padding: 2px 6px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    display: inline-block;
+}
+
+/* 関連メールを表示するペイン */
+.related-pane {
+  width: 300px;
+  min-width: 300px;
+  max-width: 300px;
+  background-color: #fcfcfd;
+  border-left: 1px solid #e2e8f0;
+  display: flex;
+  flex-direction: column;
+}
+
+.related-list-container {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* --- ライトモード（基本設定） --- */
+:root {
+  --bg-app: #f8fafc;
+  --bg-card: #ffffff;
+  --text-main: #1e293b;
+  --text-muted: #64748b;
+  --border: #e2e8f0;
+}
+
+/* --- ダークモード（OSの設定がダークの時だけ上書き） --- */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-app: #0f172a;    /* 深い紺色 */
+    --bg-card: #1e293b;   /* 少し明るい紺色 */
+    --text-main: #f1f5f9; /* 明るいグレー */
+    --text-muted: #94a3b8;
+    --border: #334155;
+  }
+}
+
+/* 各パーツで変数を使う */
+body {
+  background-color: var(--bg-app);
+  color: var(--text-main);
+}
+.sidebar, .email-view {
+  background-color: var(--bg-card);
+  border-color: var(--border);
+}
+
+.ai-summary-card {
+    background: linear-gradient(135deg, #f0f7ff 0%, #ffffff 100%);
+    border-left: 4px solid #3b82f6;
+    padding: 15px;
+    margin-top: 10px;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: #1e40af;
+}
+
+.recipient-badge {
+    font-size: 0.6rem;
+    font-weight: bold;
+    padding: 1px 4px;
     border-radius: 3px;
-    outline: none;
-    height: 30px;
-    line-height: 30px;
-    padding: 0 10px;
-    background-color: rgba(240, 240, 240, 1);
-    -webkit-font-smoothing: antialiased;
+    margin-right: 6px;
+    vertical-align: middle;
+    text-transform: uppercase;
 }
 
-.input-box .input:hover {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
+/* 自分宛：誠実な青 */
+.recipient-badge.direct {
+    background-color: #dbeafe;
+    color: #1e40af;
+    border: 1px solid #bfdbfe;
 }
 
-.input-box .input:focus {
-    border: none;
-    background-color: rgba(255, 255, 255, 1);
+/* ML宛：落ち着いたグレー */
+.recipient-badge.ml {
+    background-color: #f1f5f9;
+    color: #475569;
+    border: 1px solid #e2e8f0;
 }
+
+
+.ai-badge {
+  font-size: 0.7rem;
+  font-weight: bold;
+  background: #3b82f6;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-bottom: 8px;
+  display: inline-block;
+}
+
+.delete-btn {
+    padding: 6px 12px;
+    background-color: #fee2e2;
+    color: #dc2626;
+    border: 1px solid #fecaca;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: all 0.2s;
+}
+.delete-btn:hover {
+    background-color: #dc2626;
+    color: white;
+}
+
+.list-separator {
+    background-color: #f8fafc;
+    color: #64748b;
+    padding: 8px 16px;
+    font-size: 0.7rem;
+    font-weight: bold;
+    text-transform: uppercase;
+    border-bottom: 1px solid #e2e8f0;
+    position: sticky; /* スクロール時に上端に固定 */
+    top: 0;
+    z-index: 5;
+    letter-spacing: 0.05em;
+}
+

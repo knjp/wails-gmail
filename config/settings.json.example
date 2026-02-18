@@ -1,0 +1,6 @@
+{
+  "my_address": "mail@your.domain",
+  "ollama_model": "llama3.1:8b-instruct-q4_K_M",
+  "sync_interval": 120
+}
+

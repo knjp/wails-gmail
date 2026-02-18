@@ -61,6 +61,7 @@ credentials.json
 token.json
 #
 channels.json
+settings.json
 
 # TMP ディレクトリも
 tmp/*

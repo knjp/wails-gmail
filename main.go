@@ -13,6 +13,7 @@ var assets embed.FS
 
 func main() {
 	// Create an instance of the app structure
+	//os.Setenv("GODEBUG", "cgocheck=0")
 	app := NewApp()
 
 	// Create application with options
