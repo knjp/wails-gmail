@@ -200,6 +200,17 @@ function App() {
         loadData();
     }, [activeTab]);
 
+    useEffect(() => {
+        // 🌟 モーダルが閉じられ（false）、かつ認証が完了しているはずの時
+        if (!showAuthModal && myAddress) {
+            console.log("🔓 認証完了！アプリを始動します...");
+            const startApp = async () => {
+                await loadChannels(); // チャンネル一覧を取得
+            }
+            startApp();
+        }
+    }, [showAuthModal]); // 🌟 showAuthModal の変化を監視
+
     const handleSelect = async (msg) => {
         if (loadingBody) return;
     

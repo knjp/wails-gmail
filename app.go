@@ -257,6 +257,13 @@ func (a *App) CompleteAuth(code string) error {
 		return err
 	}
 	saveToken("config/token.json", tok)
+	client := config.Client(context.Background(), tok)
+	srv, err := gmail.NewService(context.Background(), option.WithHTTPClient(client))
+	if err != nil {
+		return err
+	}
+	a.srv = srv
+
 	return nil
 }
 
