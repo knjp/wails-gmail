@@ -1,6 +1,7 @@
 import {useState, useEffect, useRef} from 'react';
 import './App.css';
 import {SyncMessages, GetMessagesByChannel, GetMessageBody, GetChannels, SyncHistoricalMessages, GetAISearchResults, SummarizeEmail, TrashMessage, GetConfig, LoadChannelsFromJson} from "../wailsjs/go/main/App";
+import {SetManualImportance, MarkAsRead} from "../wailsjs/go/main/App";
 import { BrowserOpenURL } from '../wailsjs/runtime'; // Wails標準の機能
 
 function App() {
@@ -57,9 +58,7 @@ function App() {
     };
 
     const handleDelete = async (msg) => {
-        // ストラ氏も安心の確認ダイアログ
         if (!window.confirm(`「${msg.subject}」をゴミ箱に移動しますか？`)) return;
-    
         try {
             await TrashMessage(msg.id);
             // 成功したら、現在のリストからそのメールを消す（再読み込み不要の爆速UI）
@@ -102,6 +101,31 @@ function App() {
             alert("チャンネル設定を更新しました！");
         } catch (err) {
             console.error("リロード失敗:", err);
+        }
+    };
+
+    const handleManualImportance = async (level) => {
+        if (!selectedMsg) return;
+    
+        try {
+            // 1. Go側の関数を呼び出してDBを更新
+            // ※ Go側で a.SetManualImportance(id, level) を定義済みである前提です
+            await SetManualImportance(selectedMsg.id, level);
+    
+            // 2. 現在表示中のメール情報を更新（これでボタンの「active」色が変わります）
+            setSelectedMsg({
+                ...selectedMsg,
+                importance: level
+            });
+    
+            // 3. 左側のリスト（messages）の中の該当メールも更新して、バッジの色などを即座に変える
+            setMessages(prev => prev.map(m => 
+                m.id === selectedMsg.id ? { ...m, importance: level } : m
+            ));
+    
+            console.log(`✅ 重要度を ${level} に変更しました`);
+        } catch (err) {
+            console.error("重要度の更新に失敗:", err);
         }
     };
 
@@ -366,15 +390,35 @@ function App() {
                                     </div>
                                 </div>
                                 
-                                {/* 2. 右上のアクションボタン群 */}
-                                <div className="header-actions">
-                                    <button onClick={handleManualSummarize} disabled={isSummarizing} className="summary-btn">
-                                        {isSummarizing ? "⌛..." : "✨ 要約"}
-                                    </button>
-                                    <button onClick={() => handleDelete(selectedMsg)} className="delete-btn">
-                                        🗑️
-                                    </button>
-                                </div>
+
+<div className="header-actions-container">
+    {/* 上段：メインアクション */}
+    <div className="main-actions">
+        <button onClick={handleManualSummarize} disabled={isSummarizing} className="summary-btn">
+            {isSummarizing ? "⌛ 要約中..." : "✨ AI要約"}
+        </button>
+        <button onClick={() => handleDelete(selectedMsg)} className="delete-btn">
+            🗑️
+        </button>
+    </div>
+
+    {/* 下段：重要度ピッカー */}
+    <div className="importance-picker-row">
+        <span className="picker-label">重要度</span>
+        <div className="imp-button-group">
+            {[1, 2, 3, 4, 5].map(num => (
+                <button 
+                    key={num}
+                    className={`imp-num-btn ${selectedMsg.importance === num ? 'active' : ''}`}
+                    onClick={() => handleManualImportance(num)}
+                >
+                    {num}
+                </button>
+            ))}
+        </div>
+    </div>
+</div>
+
                             </div>
 
                             {/* 3. AI インフォメーション（期限と要約） */}

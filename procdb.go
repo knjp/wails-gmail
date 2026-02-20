@@ -80,7 +80,7 @@ func (a *App) SyncEmailVector(gmailID string, bodyText string) error {
 
 	// 1. Ollama に文章を送って 768 次元の数値（Embedding）をもらう
 	req := &api.EmbeddingRequest{
-		Model:  "nomic-embed-text",
+		Model:  globalConfig.EmbedModel,
 		Prompt: cleanText,
 	}
 

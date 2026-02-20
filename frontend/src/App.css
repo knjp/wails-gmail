@@ -288,7 +288,61 @@ body, html, #App {
 
 .detail-from { font-weight: bold; margin-right: 15px; }
 
-.header-actions { display: flex; gap: 8px; }
+.header-actions-container {
+    display: flex;
+    flex-direction: column; /* 🌟 縦に並べる魔法 */
+    align-items: flex-end;   /* 右端に揃える */
+    gap: 12px;              /* 要約ボタンと重要度ボタンの間隔 */
+}
+
+.main-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.importance-picker-row {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+}
+
+.picker-label {
+    font-size: 0.7rem;
+    color: #94a3b8;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.imp-button-group {
+    display: flex;
+    background: #f1f5f9;
+    padding: 2px;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+}
+
+.imp-num-btn {
+    width: 28px;
+    height: 24px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 0.8rem;
+    color: #64748b;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.imp-num-btn:hover {
+    background: #e2e8f0;
+}
+
+.imp-num-btn.active {
+    background: #3b82f6;
+    color: white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
 
 .ai-info-section {
     padding: 15px 20px;

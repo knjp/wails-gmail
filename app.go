@@ -66,6 +66,7 @@ type SearchResult struct {
 type Config struct {
 	MyAddress    string `json:"my_address"`
 	OllamaModel  string `json:"ollama_model"`
+	EmbedModel   string `json:"embed_model"`
 	SyncInterval int    `json:"sync_interval"`
 }
 
@@ -109,6 +110,7 @@ func (a *App) startup(ctx context.Context) {
 		globalConfig = Config{
 			MyAddress:    "your-email@gmail.com",
 			OllamaModel:  "qwen2.5:1.5b",
+			EmbedModel:   "inomic-embed-text",
 			SyncInterval: 60,
 		}
 		defaultData, _ := json.MarshalIndent(globalConfig, "", "  ")
@@ -457,7 +459,7 @@ func (a *App) GetMessagesByChannel(channelName string) ([]MessageSummary, error)
 	return results, nil
 }
 
-func (a *App) markAsRead(id string) error {
+func (a *App) MarkAsRead(id string) error {
 	if a.srv == nil {
 		return nil
 	}
@@ -496,7 +498,7 @@ func (a *App) GetMessageBody(id string) (string, error) {
 
 	// gmail で既読に変更
 	go func() {
-		err := a.markAsRead(id)
+		err := a.MarkAsRead(id)
 		if err != nil {
 			fmt.Printf("既読同期失敗: %v\n", err)
 		}
@@ -947,6 +949,12 @@ func (a *App) ExtractDeadlines(id string) error {
 	}
 
 	return nil
+}
+
+func (a *App) SetManualImportance(id string, level int) error {
+	// 🌟 AIの判定を人間が「上書き」する
+	_, err := a.db.Exec("UPDATE messages SET importance = ? WHERE id = ?", level, id)
+	return err
 }
 
 func (a *App) TrashMessage(id string) error {
