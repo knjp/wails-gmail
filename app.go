@@ -187,7 +187,7 @@ func (a *App) startup(ctx context.Context) {
 	// --- ここから Gmail API の初期化を再開 ---
 	b, err := os.ReadFile("config/credentials.json")
 	if err != nil {
-		log.Printf("credentials.json 読み込み失敗: %v", err)
+		// log.Printf("credentials.json 読み込み失敗: %v", err)
 		return
 	}
 
@@ -233,6 +233,12 @@ func (a *App) startup(ctx context.Context) {
 
 func (a *App) GetAuthURL() (string, error) {
 	tokFile := "config/token.json"
+	credFile := "config/credentials.json"
+
+	if _, err := os.Stat(credFile); os.IsNotExist(err) {
+		return "MISSING_CREDENTIALS", nil
+	}
+
 	_, err := os.Stat(tokFile)
 	if err == nil {
 		// 🌟 token.json が既に存在するなら、認証URLは不要
