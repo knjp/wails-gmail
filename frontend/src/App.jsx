@@ -1,7 +1,7 @@
 import {useState, useEffect, useRef} from 'react';
 import './App.css';
 import {SyncMessages, GetMessagesByChannel, GetMessageBody, GetChannels, SyncHistoricalMessages, GetAISearchResults, SummarizeEmail, TrashMessage, GetConfig, LoadChannelsFromJson} from "../wailsjs/go/main/App";
-import {SetManualImportance, MarkAsRead} from "../wailsjs/go/main/App";
+import {SetManualImportance, MarkAsRead, CompleteAuth, GetAuthURL } from "../wailsjs/go/main/App";
 import { BrowserOpenURL } from '../wailsjs/runtime'; // Wails標準の機能
 
 function App() {
@@ -20,6 +20,10 @@ function App() {
     const [isSummarizing, setIsSummarizing] = useState(false);
     const requestRef = useRef(0); // 🌟 リクエストの通し番号を記録する
     const [myAddress, setMyAddress] = useState("");
+    const [showAuthModal, setShowAuthModal] = useState(false);
+    const [authURL, setAuthURL] = useState("");
+    const [inputCode, setInputCode] = useState("");
+
 
     const handleManualSummarize = async () => {
         setIsSummarizing(true);
@@ -129,28 +133,44 @@ function App() {
         }
     };
 
-
-    // 最初の useEffect (チャンネル読み込み等) に追加
     useEffect(() => {
-        const init = async () => {
-            try {
-                const cfg = await GetConfig();
-                console.log("設定を読み込みました:", cfg.my_address);
-                setMyAddress(cfg.my_address);
-                
-                // チャンネル等の既存の初期化もここで行うと現代的
-                loadChannels();
-            } catch (err) {
-                console.error("設定読み込み失敗:", err);
+        const handleMessage = (event) => {
+            if (event.data.type === 'open_url') {
+                console.log("外部ブラウザで開きます:", event.data.url);
+                BrowserOpenURL(event.data.url); // 直接Wailsのランタイムを呼ぶ
             }
         };
-        init();
+        window.addEventListener('message', handleMessage);
+
+        const initApp = async () => {
+            try {
+                // 1. まず「設定（MyAddressなど）」を読み込む
+                const cfg = await GetConfig();
+                setMyAddress(cfg.my_address);
+    
+                // 2. 🌟 認証が必要かチェックする 🌟
+                // Go側の getClient 等を呼び出して token.json があるか確認
+                const authURL = await GetAuthURL(); 
+                if (authURL) {
+                    // URLが返ってきたら「認証が必要」なのでモーダルを出す
+                    setAuthURL(authURL);
+                    setShowAuthModal(true);
+                } else {
+                    // すでに認証済みなら、そのままメール取得などを開始
+                    loadChannels();
+                }
+            } catch (err) {
+                // エラー（token.jsonがない等）の場合は、ここで認証URLを取得してモーダルへ
+                const url = await GetAuthURL();
+                setAuthURL(url);
+                setShowAuthModal(true);
+            }
+        };
+        initApp();
+
+        return () => window.removeEventListener('message', handleMessage);
     }, []);
 
-    // 1. 初期起動時にチャンネル一覧を取得
-    useEffect(() => {
-       loadChannels();
-    }, []);
 
     useEffect(() => {
         const currentRequestId = ++requestRef.current; // このリクエストに番号を振る
@@ -179,18 +199,6 @@ function App() {
     
         loadData();
     }, [activeTab]);
-
-
-    useEffect(() => {
-        const handleMessage = (event) => {
-            if (event.data.type === 'open_url') {
-                console.log("外部ブラウザで開きます:", event.data.url);
-                BrowserOpenURL(event.data.url); // 直接Wailsのランタイムを呼ぶ
-            }
-        };
-        window.addEventListener('message', handleMessage);
-        return () => window.removeEventListener('message', handleMessage);
-    }, []);
 
     const handleSelect = async (msg) => {
         if (loadingBody) return;
@@ -314,6 +322,25 @@ function App() {
 
     return (
         <div className="container">
+            {showAuthModal && (
+                <div className="auth-overlay">
+                    <div className="auth-card">
+                        <h2>🔑 Google ログイン</h2>
+                        <p>アプリを使用するために認証が必要です。</p>
+                        <button onClick={() => BrowserOpenURL(authURL)}>ブラウザを開いて承認</button>
+                        <input 
+                            placeholder="表示されたコードを入力" 
+                            value={inputCode} 
+                            onChange={e => setInputCode(e.target.value)} 
+                        />
+                        <button onClick={async () => {
+                            await CompleteAuth(inputCode);
+                            setShowAuthModal(false);
+                            window.location.reload(); // 🌟 再起動してメール取得開始
+                        }}>認証を完了する</button>
+                    </div>
+                </div>
+            )}
             <div className="main-layout">
 
                 {/* 左端：チャンネルリスト（旧タブバー） */}

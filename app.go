@@ -81,7 +81,24 @@ func (a *App) GetConfig() Config {
 }
 
 func (a *App) LoadChannelsFromJson() {
-	data, err := os.ReadFile("config/channels.json")
+	target := "config/channels.json"
+	example := "config/channels.json.example"
+
+	if _, err := os.Stat(target); os.IsNotExist(err) {
+		// target が存在しない場合、example があるか確認
+		if data, err := os.ReadFile(example); err == nil {
+			// example の中身を target に書き込む（＝コピー）
+			os.WriteFile(target, data, 0644)
+			fmt.Println("📝 example から設定ファイルを作成しました")
+		} else {
+			// example もない場合は、「最低限のデフォルト」を作成
+			defaultChannels := `[{"name": "📥 受信トレイ", "query": "is:unread", "ttl_days": 0}]`
+			os.WriteFile(target, []byte(defaultChannels), 0644)
+			fmt.Println("⚠️ デフォルト設定を作成しました")
+		}
+	}
+
+	data, err := os.ReadFile(target)
 	if err != nil {
 		return
 	}
@@ -110,7 +127,7 @@ func (a *App) startup(ctx context.Context) {
 		globalConfig = Config{
 			MyAddress:    "your-email@gmail.com",
 			OllamaModel:  "qwen2.5:1.5b",
-			EmbedModel:   "inomic-embed-text",
+			EmbedModel:   "nomic-embed-text",
 			SyncInterval: 60,
 		}
 		defaultData, _ := json.MarshalIndent(globalConfig, "", "  ")
@@ -183,7 +200,6 @@ func (a *App) startup(ctx context.Context) {
 	// getClient 関数を使って http.Client を取得
 	client, err := a.getClient(config)
 	if err != nil {
-		log.Printf("Client 取得失敗 (token.json を確認してください): %v", err)
 		return
 	}
 
@@ -215,48 +231,75 @@ func (a *App) startup(ctx context.Context) {
 	a.srv = srv
 }
 
-// getClient は token.json を読み込んで http.Client を返す
-func (a *App) getClient(config *oauth2.Config) (*http.Client, error) {
+func (a *App) GetAuthURL() (string, error) {
 	tokFile := "config/token.json"
-	f, err := os.Open(tokFile)
-	if err != nil {
-		// token.json がない場合、認証URLを生成して表示
-		authURL := config.AuthCodeURL("state-token", oauth2.AccessTypeOffline)
-		fmt.Println("\n--- 🔑 Google 認証が必要です ---")
-		fmt.Println("以下のURLをブラウザで開き、表示されたコードをここに入力してください:")
-		fmt.Printf("\n%v\n\n", authURL)
-
-		var authCode string
-		fmt.Print("認証コードを入力: ")
-		if _, err := fmt.Scan(&authCode); err != nil {
-			return nil, fmt.Errorf("コードの読み取りに失敗: %v", err)
-		}
-
-		tok, err := config.Exchange(context.TODO(), authCode)
-		if err != nil {
-			return nil, fmt.Errorf("トークン取得に失敗: %v", err)
-		}
-
-		// 新しい通行証（token.json）を保存
-		saveToken(tokFile, tok)
-		return config.Client(context.Background(), tok), nil
-		//return nil, err
+	_, err := os.Stat(tokFile)
+	if err == nil {
+		// 🌟 token.json が既に存在するなら、認証URLは不要
+		return "", nil
 	}
-	defer f.Close()
-	tok := &oauth2.Token{}
-	err = json.NewDecoder(f).Decode(tok)
-	return config.Client(context.Background(), tok), err
+
+	// 存在しない場合は、新しい認証URLを生成して返す
+	config, err := a.getOAuthConfig()
+	if err != nil {
+		return "", err
+	}
+	return config.AuthCodeURL("state-token", oauth2.AccessTypeOffline), nil
 }
 
-// トークン保存用ヘルパー
-func saveToken(path string, token *oauth2.Token) {
-	fmt.Printf("トークンを保存中: %s\n", path)
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
+func (a *App) CompleteAuth(code string) error {
+	config, err := a.getOAuthConfig()
 	if err != nil {
-		log.Fatalf("保存失敗: %v", err)
+		return err
 	}
-	defer f.Close()
-	json.NewEncoder(f).Encode(token)
+	tok, err := config.Exchange(context.TODO(), code)
+	if err != nil {
+		return err
+	}
+	saveToken("config/token.json", tok)
+	return nil
+}
+
+func (a *App) getOAuthConfig() (*oauth2.Config, error) {
+	// 1. ダウンロードした秘密の鍵ファイルを読み込む
+	b, err := os.ReadFile("config/credentials.json")
+	if err != nil {
+		return nil, fmt.Errorf("credentials.json が見つかりません: %v", err)
+	}
+
+	// 2. Google のライブラリを使って設定オブジェクトに変換
+	// スコープは「メールの読み書き・削除」ができる GmailModify を指定
+	config, err := google.ConfigFromJSON(b, gmail.GmailModifyScope)
+	if err != nil {
+		return nil, fmt.Errorf("認証設定の解析に失敗: %v", err)
+	}
+	return config, nil
+}
+
+// / getClient: トークンを読み込んで Client を返す（なければエラーを返す）
+func (a *App) getClient(config *oauth2.Config) (*http.Client, error) {
+	tokFile := "config/token.json"
+
+	data, err := os.ReadFile(tokFile)
+	if err != nil {
+		return nil, fmt.Errorf("token.json がありません。認証が必要です")
+	}
+
+	tok := &oauth2.Token{}
+	if err := json.Unmarshal(data, tok); err != nil {
+		return nil, err
+	}
+
+	return config.Client(context.Background(), tok), nil
+}
+
+// saveToken: トークンを保存
+func saveToken(path string, token *oauth2.Token) {
+	data, _ := json.MarshalIndent(token, "", "  ") // 綺麗に整形して保存
+	// 🌟 os.WriteFile で一撃保存（パーミッション 0600 もここで指定）
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		fmt.Printf("⚠️ 保存失敗: %v\n", err)
+	}
 }
 
 func (a *App) SyncMessages() error {
@@ -684,7 +727,7 @@ func (a *App) SyncHistoricalMessages(pageToken string) (string, error) {
 func (a *App) AISearch(query string) ([]SearchResult, error) {
 	// 1. 検索クエリをベクトル化
 	req := &api.EmbeddingRequest{
-		Model:  "nomic-embed-text",
+		Model:  globalConfig.EmbedModel,
 		Prompt: query,
 	}
 	resp, err := a.ollama.Embeddings(context.Background(), req)
