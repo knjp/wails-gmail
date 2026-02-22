@@ -80,7 +80,7 @@ func (a *App) GetConfig() Config {
 	return globalConfig
 }
 
-func (a *App) LoadChannelsFromJson() {
+func (a *App) LoadChannelsFromJson() error {
 	target := "config/channels.json"
 	example := "config/channels.json.example"
 
@@ -100,19 +100,37 @@ func (a *App) LoadChannelsFromJson() {
 
 	data, err := os.ReadFile(target)
 	if err != nil {
-		return
+		return fmt.Errorf("ファイルの読み込みに失敗: %w", err) // 🌟 黙って return しない
 	}
 
 	var configs []ChannelConfig
-	json.Unmarshal(data, &configs)
+	if err := json.Unmarshal(data, &configs); err != nil {
+		return fmt.Errorf("JSONの解析に失敗: %w", err)
+	}
 
-	a.db.Exec("DELETE FROM channels")
+	// 🌟 念のための空チェック（ここを通れば DB は守られます）
+	if len(configs) == 0 {
+		return fmt.Errorf("設定ファイルが空です")
+	}
+
+	//	var configs []ChannelConfig
+	//	json.Unmarshal(data, &configs)
+	// 🌟 トランザクションで「全消し」と「書き込み」をセットにする
+	tx, err := a.db.Begin()
+	if err != nil {
+		return err
+	}
+
+	tx.Exec("DELETE FROM channels")
 	for _, c := range configs {
-		_, err := a.db.Exec("INSERT INTO channels (name, sql_condition, ttl_days) VALUES (?, ?, ?)", c.Name, c.Query, c.TTLdays)
+		_, err := tx.Exec("INSERT INTO channels (name, sql_condition, ttl_days) VALUES (?, ?, ?)",
+			c.Name, c.Query, c.TTLdays)
 		if err != nil {
-			fmt.Printf("DB err: %s", err)
+			tx.Rollback() // 失敗したら元に戻す
+			return err
 		}
 	}
+	return tx.Commit() // 🌟 ここで初めて DB が書き換わる
 }
 
 func (a *App) startup(ctx context.Context) {
@@ -270,124 +288,6 @@ func (a *App) startBackgroundTasks() {
 	}()
 
 }
-
-/*
-func (a *App) startup_old(ctx context.Context) {
-	a.ctx = ctx
-	os.MkdirAll("db", 0755)
-	os.MkdirAll("config", 0755)
-
-	confPath := "config/settings.json"
-	data, err := os.ReadFile(confPath)
-	if err != nil {
-		// ファイルがない場合はデフォルト値をセットして保存しておく（親切設計）
-		globalConfig = Config{
-			MyAddress:    "your-email@gmail.com",
-			OllamaModel:  "qwen2.5:1.5b",
-			EmbedModel:   "nomic-embed-text",
-			SyncInterval: 60,
-		}
-		defaultData, _ := json.MarshalIndent(globalConfig, "", "  ")
-		os.WriteFile(confPath, defaultData, 0644)
-		fmt.Println("📝 デフォルト設定ファイルを作成しました")
-	} else {
-		// 既存ファイルを構造体に流し込む
-		json.Unmarshal(data, &globalConfig)
-		fmt.Println("🚀 設定を読み込みました:", globalConfig.OllamaModel)
-	}
-
-	db, err := sql.Open("sqlite", "db/mail_cache.db")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	a.db = db
-	a.db.SetMaxIdleConns(1) // 待機中の接続を5個キープ
-	a.db.Exec("PRAGMA busy_timeout=10000")
-	a.db.Exec("PRAGMA journal_mode=WAL;")
-
-	a.db.Exec(`CREATE TABLE IF NOT EXISTS channels (id INTEGER PRIMARY KEY, name TEXT UNIQUE, sql_condition TEXT, ttl_days INTEGER);`)
-	a.LoadChannelsFromJson()
-
-	// テーブル作成
-	a.db.Exec(`CREATE TABLE IF NOT EXISTS messages (
-		id TEXT PRIMARY KEY, sender TEXT,
-		recipient TEXT,
-		subject TEXT,
-		snippet TEXT,
-		timestamp INTEGER,
-		body TEXT,
-		summary TEXT,
-		is_read INTEGER DEFAULT 0,
-		importance INTEGER DEFAULT 0,
-		deadline DATETIME
-	);`)
-
-	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);")
-	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);")
-	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_deadline ON messages(deadline);")
-	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(deadline);")
-	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_importance ON messages(deadline);")
-	fmt.Println("✅ インデックスの作成/確認が完了しました")
-
-	s, err := NewStore(a.db)
-	if err != nil {
-		panic(err)
-	}
-	a.store = s
-
-	ollama_client, _ := api.ClientFromEnvironment()
-	a.ollama = ollama_client
-
-	// Gmail API の初期化 (credentials.json と token.json がある前提)
-	// a.srv = srv
-	// --- ここから Gmail API の初期化を再開 ---
-	b, err := os.ReadFile("config/credentials.json")
-	if err != nil {
-		// log.Printf("credentials.json 読み込み失敗: %v", err)
-		return
-	}
-
-	config, err := google.ConfigFromJSON(b, gmail.GmailModifyScope)
-	if err != nil {
-		log.Printf("OAuth config 作成失敗: %v", err)
-		return
-	}
-
-	// getClient 関数を使って http.Client を取得
-	client, err := a.getClient(config)
-	if err != nil {
-		return
-	}
-
-	go func() {
-		time.Sleep(3 * time.Minute)
-		for {
-			a.RunAutoCleanup()
-			// 次のお掃除まで1時間休む（config.jsonから読み込んでもOK）
-			time.Sleep(1 * time.Hour)
-		}
-
-	}()
-
-	// startup 内
-	go func() {
-		interval := time.Duration(globalConfig.SyncInterval) * time.Second
-		for {
-			a.SyncMessages()
-			time.Sleep(interval) // 🌟 設定値で待機
-		}
-	}()
-
-	// サービスを構造体のフィールドに代入（これで「API未初期化」が消えます）
-	srv, err := gmail.NewService(ctx, option.WithHTTPClient(client))
-	if err != nil {
-		log.Printf("Gmail サービス作成失敗: %v", err)
-		return
-	}
-	a.srv = srv
-}
-*/
 
 func (a *App) GetAuthURL() (string, error) {
 	tokFile := "config/token.json"
@@ -547,73 +447,6 @@ func (a *App) SyncMessages() error {
 			}
 			// (略: 強化ベクトル化ロジック)
 			//combinedText := fmt.Sprintf("From: %s\nTo: %s\nSubject: %s\nSnippet: %s", sender, recipient, subject, snippet)
-			err := a.SyncEmailVector(id, combinedText)
-			if err != nil {
-				fmt.Printf("強化ベクトル化失敗: %v\n", err)
-			}
-
-		}(m.Id, subject, sender, combinedRecipient, msg.Snippet)
-	}
-	return nil
-}
-
-func (a *App) SyncMessages_old() error {
-	if a.srv == nil {
-		return fmt.Errorf("API未初期化")
-	}
-	res, err := a.srv.Users.Messages.List("me").MaxResults(20).Do()
-	if err != nil {
-		return err
-	}
-
-	for _, m := range res.Messages {
-		msg, err := a.srv.Users.Messages.Get("me", m.Id).Format("metadata").Do()
-		if err != nil {
-			continue
-		}
-
-		isRead := 1
-		for _, label := range msg.LabelIds {
-			if label == "UNREAD" {
-				isRead = 0
-				break
-			}
-		}
-
-		var sender, subject, to, cc string
-		for _, h := range msg.Payload.Headers {
-			if h.Name == "From" {
-				sender = h.Value
-			}
-			if h.Name == "Subject" {
-				subject = h.Value
-			}
-			if h.Name == "To" {
-				to = h.Value
-			}
-			if h.Name == "Cc" {
-				cc = h.Value
-			}
-		}
-		combinedRecipient := to + " " + cc
-
-		a.db.Exec(`INSERT OR IGNORE INTO messages (id, sender, recipient, subject, snippet, timestamp, is_read) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			msg.Id, sender, combinedRecipient, subject, msg.Snippet, msg.InternalDate, isRead)
-
-		go func(id string, subject string, sender string, recipient string, snippet string) {
-			if snippet != "" && subject == "" {
-				return
-			}
-			// 🌟 情報の「盛り合わせ」を作る 🌟
-			// 形式はAIが理解しやすい自然な形に
-			combinedText := fmt.Sprintf("From: %s\nTo: %s\nSubject: %s\nSnippet: %s",
-				sender, recipient, subject, snippet)
-			limit := 4000
-			if len(combinedText) > limit {
-				combinedText = combinedText[:limit]
-			}
-
-			// これをベクトル化に回す
 			err := a.SyncEmailVector(id, combinedText)
 			if err != nil {
 				fmt.Printf("強化ベクトル化失敗: %v\n", err)

@@ -26,16 +26,47 @@ export const api = {
 
     getChannels: async () => {
         let rawData;
+        try {
+            if (isWeb) {
+                // 🌐 Web版: GoサーバーからJSON(オブジェクト配列)を取得
+                const response = await fetch("/api/channels");
+                if (!response.ok) throw new Error("Fetch error");
+                rawData = await response.json(); 
+            } else {
+                // 🖥️ Desktop版: Wails経由で取得
+                // 🌟 直接 window.go を見に行くことで import エラーを回避
+                rawData = await window?.go?.main?.App?.GetChannels();
+            }
+
+            console.log("📥 受信データ(raw):", rawData);
+
+            // 🛡️ 現代的な型ガードと整形 🛡️
+            if (Array.isArray(rawData)) {
+                // もし [{name: "全受信"}, ...] というオブジェクト配列なら、文字列配列 ["全受信", ...] に変換
+                // そうでなければ(すでに文字列配列なら)そのまま使う
+                return rawData.map(item => {
+                    if (typeof item === 'object' && item !== null && item.name) {
+                        return item.name;
+                    }
+                    return item; // すでに文字列ならそのまま
+                });
+            }
+            return []; // 配列ですらない場合は空配列を返す
+        } catch (err) {
+            console.error("🚫 getChannels 失敗:", err);
+            return [];
+        }
+    },
+
+    // 🌟 設定再読み込み
+    loadChannelsFromJson: async () => {
         if (isWeb) {
-            rawData = await fetch("/api/channels").then(r => r.json());
-        } else {
-            rawData = await window?.go?.main?.App?.GetChannels();
+            // 🌐 Web版：POSTでリロードを要求し、最新の配列を受け取る
+            const response = await fetch("/api/reload-channels", { method: 'POST' });
+            if (!response.ok) throw new Error("Reload failed");
+            return await response.json(); // 新しい ["受信トレイ", ...] が返る
         }
-        // データ整形ロジック
-        if (Array.isArray(rawData) && rawData.length > 0 && typeof rawData[0] === 'object') {
-            return rawData.map(item => item.name);
-        }
-        return rawData;
+        return window?.go?.main?.App?.LoadChannelsFromJson();
     },
 
     getMessageBody: async (id) => {
@@ -43,7 +74,9 @@ export const api = {
             // 🌐 Web版：サーバーから本文を fetch
             const response = await fetch(`/api/message-body?id=${encodeURIComponent(id)}`);
             if (!response.ok) throw new Error("本文取得失敗");
-            return await response.text(); // HTML/Textなので .text() で受ける
+            const bodyText = await response.text(); 
+            console.log("📥 本文を受信しました (サイズ:", bodyText.length, ")");
+            return bodyText; 
         }
         // 🖥️ Wails版：安全に呼び出す
         return window?.go?.main?.App?.GetMessageBody(id);
@@ -100,12 +133,6 @@ export const api = {
     trashMessage: async (id) => {
         if (isWeb) return fetchApi("/api/trash", { id }, 'POST');
         return window?.go?.main?.App?.TrashMessage(id);
-    },
-
-    // 🌟 設定再読み込み
-    loadChannelsFromJson: async () => {
-        if (isWeb) return fetchApi("/api/reload-channels", {}, 'POST');
-        return window?.go?.main?.App?.LoadChannelsFromJson();
     },
 
     // 🌟 重要度の上書き

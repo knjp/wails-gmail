@@ -13,7 +13,6 @@ function App() {
     const [nextPageToken, setNextPageToken] = useState("");
     const [query, setQuery] = useState("");
     const [summary, setSummary] = useState("")
-    //const [results, setResults] = useState([]);
     const [relatedMsgs, setRelatedMsgs] = useState([])
     const [isSummarizing, setIsSummarizing] = useState(false);
     const requestRef = useRef(0); // 🌟 リクエストの通し番号を記録する
@@ -21,7 +20,6 @@ function App() {
     const [showAuthModal, setShowAuthModal] = useState(false);
     const [authURL, setAuthURL] = useState("");
     const [inputCode, setInputCode] = useState("");
-
 
     const handleManualSummarize = async () => {
         setIsSummarizing(true);
@@ -37,7 +35,6 @@ function App() {
         setNextPageToken(token);
 
         // 表示を更新
-        //const data = await GetMessagesByChannel(activeTab);
         const data = await api.getMessages(activeTab);
         setMessages(data);
         setLoading(false);
@@ -95,12 +92,17 @@ function App() {
         }
     };
 
-    // チャンネル再読み込み関数
     const handleReloadChannels = async () => {
         try {
             console.log("♻️ チャンネル設定を再読み込み中...");
-            await api.loadChannelsFromJson(); // Go側の関数を呼ぶ
-            await loadChannels();        // React側のステート（tabs）を更新
+            
+            // 1. Go側のDBを JSON ファイルから更新させる
+            await api.loadChannelsFromJson(); 
+            
+            // 2. 🌟 重要：更新されたDBから最新のリストを「再度」取得して画面にセットする
+            const newTabs = await api.getChannels(); 
+            setTabs(newTabs || []);
+            
             alert("チャンネル設定を更新しました！");
         } catch (err) {
             console.error("リロード失敗:", err);
@@ -216,6 +218,18 @@ function App() {
         }
     }, [showAuthModal]); // 🌟 showAuthModal の変化を監視
 
+    useEffect(() => {
+        // 🌟 fullBody が更新されたら、自動で iframe に「描画せよ！」と命じる
+        if (fullBody && fullBody !== "読み込み中..." && fullBody !== "エラーが発生しました。") {
+            const iframe = document.getElementById('message-iframe');
+            if (iframe && iframe.contentWindow) {
+                console.log("🪄 iframe へ本文を転送します");
+                // iframe 内のスクリプト（以前作ったもの）へ postMessage を投げる
+                iframe.contentWindow.postMessage({ type: 'render', html: fullBody }, '*');
+            }
+        }
+    }, [fullBody]); // 🌟 fullBody の変化を監視
+
     const handleSelect = async (msg) => {
         if (loadingBody) return;
     
@@ -226,7 +240,6 @@ function App() {
         setLoadingBody(true);
     
         // --- 1. 【爆速】手元のスニペットで関連検索を即座に開始 ---
-        // 要約を待たないので、クリックした瞬間に右ペインが埋まり始めます
         api.getAISearchResults(msg.snippet).then(related => {
             if (related) {
                 setRelatedMsgs(related.filter(r => r.id !== msg.id));
@@ -235,8 +248,13 @@ function App() {
     
         try {
             // --- 2. 本文取得 ---
-            const body = await a.getMessageBody(msg.id);
+            const body = await api.getMessageBody(msg.id);
             setFullBody(body);
+
+           setMessages(prev => prev.map(m =>
+                m.id === msg.id ? { ...m, is_read: 1 } : m
+            ))
+            api.markAsRead(msg.id);
     
         } catch (err) {
             console.error("本文取得エラー:", err);
@@ -244,17 +262,6 @@ function App() {
         } finally {
             setLoadingBody(false);
         }
-
-        setMessages(prev => prev.map(m =>
-            m.id === msg.id ? { ...m, is_read: 1 } : m
-        ))
-        api.markAsRead(msg.id);
-        /*
-        setTimeout(async () => {
-            const data = await GetMessagesByChannel(activeTab);
-            setMessages(data || []);
-        }, 500);
-        */
     };
 
     //
@@ -269,7 +276,7 @@ function App() {
         return messages.map((m) => {
             const msgDate = new Date(m.timestamp);
             const msgTime = msgDate.getTime();
-            console.log(`[DEBUG] 件名: ${m.subject} / 未読フラグ: ${m.is_read} / 型: ${typeof m.is_read}`);
+            // console.log(`[DEBUG] 件名: ${m.subject} / 未読フラグ: ${m.is_read} / 型: ${typeof m.is_read}`);
 
             let currentGroup = "";
             if (msgTime >= todayStart) {
@@ -328,7 +335,6 @@ function App() {
 
     const daysLeft = selectedMsg ? getDaysLeft(selectedMsg.deadline) : null;
     const isDirect = selectedMsg?.recipient?.includes(myAddress);
-
 
     return (
         <div className="container">
@@ -447,36 +453,34 @@ function App() {
                                         </span>
                                     </div>
                                 </div>
+
+                                <div className="header-actions-container">
+                                    {/* 上段：メインアクション */}
+                                    <div className="main-actions">
+                                        <button onClick={handleManualSummarize} disabled={isSummarizing} className="summary-btn">
+                                            {isSummarizing ? "⌛ 要約中..." : "✨ AI要約"}
+                                        </button>
+                                        <button onClick={() => handleDelete(selectedMsg)} className="delete-btn">
+                                            🗑️
+                                        </button>
+                                    </div>
                                 
-
-<div className="header-actions-container">
-    {/* 上段：メインアクション */}
-    <div className="main-actions">
-        <button onClick={handleManualSummarize} disabled={isSummarizing} className="summary-btn">
-            {isSummarizing ? "⌛ 要約中..." : "✨ AI要約"}
-        </button>
-        <button onClick={() => handleDelete(selectedMsg)} className="delete-btn">
-            🗑️
-        </button>
-    </div>
-
-    {/* 下段：重要度ピッカー */}
-    <div className="importance-picker-row">
-        <span className="picker-label">重要度</span>
-        <div className="imp-button-group">
-            {[1, 2, 3, 4, 5].map(num => (
-                <button 
-                    key={num}
-                    className={`imp-num-btn ${selectedMsg.importance === num ? 'active' : ''}`}
-                    onClick={() => handleManualImportance(num)}
-                >
-                    {num}
-                </button>
-            ))}
-        </div>
-    </div>
-</div>
-
+                                    {/* 下段：重要度ピッカー */}
+                                    <div className="importance-picker-row">
+                                        <span className="picker-label">重要度</span>
+                                        <div className="imp-button-group">
+                                            {[1, 2, 3, 4, 5].map(num => (
+                                                <button 
+                                                    key={num}
+                                                    className={`imp-num-btn ${selectedMsg.importance === num ? 'active' : ''}`}
+                                                    onClick={() => handleManualImportance(num)}
+                                                >
+                                                    {num}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             {/* 3. AI インフォメーション（期限と要約） */}
@@ -499,7 +503,6 @@ function App() {
                             {/* 4. 本文 */}
                             <div className="email-body-container">
                                 <iframe
-                                    key={selectedMsg.id}
                                     title="body"
                                     className="email-body-frame"
                                     srcDoc={fullBody} 
