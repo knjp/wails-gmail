@@ -117,6 +117,163 @@ func (a *App) LoadChannelsFromJson() {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+
+	// 1. フォルダと設定の準備
+	a.initDirs()
+	a.loadSettings()
+
+	// 2. データベースのセットアップ (テーブル・インデックス作成含む)
+	if err := a.initDB(); err != nil {
+		log.Fatalf("❌ データベース初期化失敗: %v", err)
+	}
+
+	// 3. AI (Ollama) の準備
+	a.initAI()
+
+	// 4. Gmail サービスの初期化 (認証がある場合のみ)
+	// 🌟 ここで失敗しても、React側のモーダルで対応するので return で OK
+	if err := a.initGmailService(); err != nil {
+		fmt.Printf("💡 認証待ちの状態です: %v\n", err)
+	}
+
+	// 5. バックグラウンドタスクの開始
+	go a.startBackgroundTasks()
+}
+
+func (a *App) initDirs() {
+	os.MkdirAll("db", 0755)
+	os.MkdirAll("config", 0755)
+}
+
+func (a *App) loadSettings() {
+	confPath := "config/settings.json"
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		// ファイルがない場合はデフォルト値をセットして保存しておく（親切設計）
+		globalConfig = Config{
+			MyAddress:    "your-email@gmail.com",
+			OllamaModel:  "qwen2.5:1.5b",
+			EmbedModel:   "nomic-embed-text",
+			SyncInterval: 60,
+		}
+		defaultData, _ := json.MarshalIndent(globalConfig, "", "  ")
+		os.WriteFile(confPath, defaultData, 0644)
+		fmt.Println("📝 デフォルト設定ファイルを作成しました")
+	} else {
+		// 既存ファイルを構造体に流し込む
+		json.Unmarshal(data, &globalConfig)
+		fmt.Println("🚀 設定を読み込みました:", globalConfig.OllamaModel)
+	}
+}
+
+func (a *App) initDB() error {
+	db, err := sql.Open("sqlite", "db/mail_cache.db")
+	if err != nil {
+		log.Fatal(err)
+		return err
+	}
+
+	a.db = db
+	a.db.SetMaxIdleConns(1) // 待機中の接続を5個キープ
+	a.db.Exec("PRAGMA busy_timeout=10000")
+	a.db.Exec("PRAGMA journal_mode=WAL;")
+
+	a.db.Exec(`CREATE TABLE IF NOT EXISTS channels (id INTEGER PRIMARY KEY, name TEXT UNIQUE, sql_condition TEXT, ttl_days INTEGER);`)
+	a.LoadChannelsFromJson()
+
+	// テーブル作成
+	a.db.Exec(`CREATE TABLE IF NOT EXISTS messages (
+		id TEXT PRIMARY KEY, sender TEXT,
+		recipient TEXT,
+		subject TEXT,
+		snippet TEXT,
+		timestamp INTEGER,
+		body TEXT,
+		summary TEXT,
+		is_read INTEGER DEFAULT 0,
+		importance INTEGER DEFAULT 0,
+		deadline DATETIME
+	);`)
+
+	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);")
+	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);")
+	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_deadline ON messages(deadline);")
+	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(deadline);")
+	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_importance ON messages(deadline);")
+	fmt.Println("✅ インデックスの作成/確認が完了しました")
+
+	s, err := NewStore(a.db)
+	if err != nil {
+		panic(err)
+	}
+	a.store = s
+	return nil
+}
+
+func (a *App) initAI() error {
+	ollama_client, err := api.ClientFromEnvironment()
+	if err != nil {
+		return err
+	}
+	a.ollama = ollama_client
+	return nil
+}
+
+func (a *App) initGmailService() error {
+
+	// Gmail API の初期化 (credentials.json と token.json がある前提)
+	b, err := os.ReadFile("config/credentials.json")
+	if err != nil {
+		// log.Printf("credentials.json 読み込み失敗: %v", err)
+		return err
+	}
+
+	config, err := google.ConfigFromJSON(b, gmail.GmailModifyScope)
+	if err != nil {
+		log.Printf("OAuth config 作成失敗: %v", err)
+		return err
+	}
+
+	// getClient 関数を使って http.Client を取得
+	client, err := a.getClient(config)
+	if err != nil {
+		return err
+	}
+	// サービスを構造体のフィールドに代入（これで「API未初期化」が消えます）
+	srv, err := gmail.NewService(a.ctx, option.WithHTTPClient(client))
+	if err != nil {
+		log.Printf("Gmail サービス作成失敗: %v", err)
+		return err
+	}
+	a.srv = srv
+	return nil
+}
+
+func (a *App) startBackgroundTasks() {
+	go func() {
+		time.Sleep(3 * time.Minute)
+		for {
+			a.RunAutoCleanup()
+			// 次のお掃除まで1時間休む（config.jsonから読み込んでもOK）
+			time.Sleep(1 * time.Hour)
+		}
+
+	}()
+
+	// startup 内
+	go func() {
+		interval := time.Duration(globalConfig.SyncInterval) * time.Second
+		for {
+			a.SyncMessages()
+			time.Sleep(interval) // 🌟 設定値で待機
+		}
+	}()
+
+}
+
+/*
+func (a *App) startup_old(ctx context.Context) {
+	a.ctx = ctx
 	os.MkdirAll("db", 0755)
 	os.MkdirAll("config", 0755)
 
@@ -230,6 +387,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.srv = srv
 }
+*/
 
 func (a *App) GetAuthURL() (string, error) {
 	tokFile := "config/token.json"

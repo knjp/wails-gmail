@@ -1,8 +1,6 @@
 import {useState, useEffect, useRef} from 'react';
 import './App.css';
-import {SyncMessages, GetMessagesByChannel, GetMessageBody, GetChannels, SyncHistoricalMessages, GetAISearchResults, SummarizeEmail, TrashMessage, GetConfig, LoadChannelsFromJson} from "../wailsjs/go/main/App";
-import {SetManualImportance, MarkAsRead, CompleteAuth, GetAuthURL } from "../wailsjs/go/main/App";
-import { BrowserOpenURL } from '../wailsjs/runtime'; // Wails標準の機能
+import { api } from './api';
 
 function App() {
     const [messages, setMessages] = useState([]);
@@ -27,7 +25,7 @@ function App() {
 
     const handleManualSummarize = async () => {
         setIsSummarizing(true);
-        const sum = await SummarizeEmail(selectedMsg.id);
+        const sum = await api.summarizeEmail(selectedMsg.id);
         setSummary(sum);
         setIsSummarizing(false);
     };
@@ -35,11 +33,12 @@ function App() {
     const handleLoadMore = async () => {
         setLoading(true);
         // Goを呼び出して、次のトークンを受け取る
-        const token = await SyncHistoricalMessages(nextPageToken);
+        const token = await api.syncHistoricalMessages(nextPageToken);
         setNextPageToken(token);
 
         // 表示を更新
-        const data = await GetMessagesByChannel(activeTab);
+        //const data = await GetMessagesByChannel(activeTab);
+        const data = await api.getMessages(activeTab);
         setMessages(data);
         setLoading(false);
     };
@@ -47,7 +46,7 @@ function App() {
     const handleAISearch = async () => {
         console.log("AI Searching!! for:", query)
         try {
-            const results = await GetAISearchResults(query);
+            const results = await api.getAISearchResults(query);
             console.log("Search Results:", results); // ここで中身を確認！
 
             if(results && results.length > 0){
@@ -64,7 +63,7 @@ function App() {
     const handleDelete = async (msg) => {
         if (!window.confirm(`「${msg.subject}」をゴミ箱に移動しますか？`)) return;
         try {
-            await TrashMessage(msg.id);
+            await api.trashMessage(msg.id);
             // 成功したら、現在のリストからそのメールを消す（再読み込み不要の爆速UI）
             setMessages(prev => prev.filter(m => m.id !== msg.id));
             setSelectedMsg(null);
@@ -84,7 +83,7 @@ function App() {
 
     const loadChannels = async (retryCount = 0) => {
         try {
-            const res = await GetChannels();
+            const res = await api.getChannels();
             if((!res || res.length === 0) && retryCount < 20){
                 console.log("Channels are not ready! Retry ...");
                 setTimeout(() => loadChannels(retryCount + 1), 5000);
@@ -100,7 +99,7 @@ function App() {
     const handleReloadChannels = async () => {
         try {
             console.log("♻️ チャンネル設定を再読み込み中...");
-            await LoadChannelsFromJson(); // Go側の関数を呼ぶ
+            await api.loadChannelsFromJson(); // Go側の関数を呼ぶ
             await loadChannels();        // React側のステート（tabs）を更新
             alert("チャンネル設定を更新しました！");
         } catch (err) {
@@ -114,7 +113,7 @@ function App() {
         try {
             // 1. Go側の関数を呼び出してDBを更新
             // ※ Go側で a.SetManualImportance(id, level) を定義済みである前提です
-            await SetManualImportance(selectedMsg.id, level);
+            await api.setManualImportance(selectedMsg.id, level);
     
             // 2. 現在表示中のメール情報を更新（これでボタンの「active」色が変わります）
             setSelectedMsg({
@@ -137,7 +136,7 @@ function App() {
         const handleMessage = (event) => {
             if (event.data.type === 'open_url') {
                 console.log("外部ブラウザで開きます:", event.data.url);
-                BrowserOpenURL(event.data.url); // 直接Wailsのランタイムを呼ぶ
+                api.openExternal(event.data.url); // 直接Wailsのランタイムを呼ぶ
             }
         };
         window.addEventListener('message', handleMessage);
@@ -145,25 +144,31 @@ function App() {
         const initApp = async () => {
             try {
                 // 1. まず「設定（MyAddressなど）」を読み込む
-                const cfg = await GetConfig();
+                const cfg = await api.getConfig();
                 setMyAddress(cfg.my_address);
-    
+
+                const channelList = await api.getChannels();
+                setTabs(channelList);
+
                 // 2. 🌟 認証が必要かチェックする 🌟
                 // Go側の getClient 等を呼び出して token.json があるか確認
-                const authURL = await GetAuthURL(); 
+                const authURL = await api.getAuthURL(); 
                 if (authURL) {
                     // URLが返ってきたら「認証が必要」なのでモーダルを出す
                     setAuthURL(authURL);
                     setShowAuthModal(true);
                 } else {
                     // すでに認証済みなら、そのままメール取得などを開始
-                    loadChannels();
+                    api.loadChannelsFromJson();
                 }
             } catch (err) {
-                // エラー（token.jsonがない等）の場合は、ここで認証URLを取得してモーダルへ
-                const url = await GetAuthURL();
-                setAuthURL(url);
-                setShowAuthModal(true);
+                console.error("初期化エラー:", err);
+                // エラー時も api 経由で取得を試みる
+                const url = await api.getAuthURL().catch(() => "");
+                if(url){
+                    setAuthURL(url);
+                    setShowAuthModal(true);
+                }
             }
         };
         initApp();
@@ -177,7 +182,7 @@ function App() {
     
         const loadData = async () => {
             // 1. まず現在のDBからデータを出す（爆速表示）
-            const data = await GetMessagesByChannel(activeTab);
+            const data = await api.getMessages(activeTab);
             
             // 🌟 チェック：もし別のタブが既にクリックされていたら、この結果は捨てる
             if (currentRequestId !== requestRef.current) return;
@@ -185,12 +190,12 @@ function App() {
     
             // 2. バックグラウンドで同期を実行
             try {
-                await SyncMessages();
+                await api.syncMessages();
                 
                 // 🌟 チェック：同期が終わった時、まだ同じタブにいるか？
                 if (currentRequestId !== requestRef.current) return;
                 
-                const freshData = await GetMessagesByChannel(activeTab);
+                const freshData = await api.getMessages(activeTab);
                 setMessages(freshData || []);
             } catch (err) {
                 console.error("同期エラー:", err);
@@ -222,7 +227,7 @@ function App() {
     
         // --- 1. 【爆速】手元のスニペットで関連検索を即座に開始 ---
         // 要約を待たないので、クリックした瞬間に右ペインが埋まり始めます
-        GetAISearchResults(msg.snippet).then(related => {
+        api.getAISearchResults(msg.snippet).then(related => {
             if (related) {
                 setRelatedMsgs(related.filter(r => r.id !== msg.id));
             }
@@ -230,14 +235,8 @@ function App() {
     
         try {
             // --- 2. 本文取得 ---
-            const body = await GetMessageBody(msg.id);
+            const body = await a.getMessageBody(msg.id);
             setFullBody(body);
-    
-            // --- 3. 本文が取れたら要約を開始 ---
-            // これも非同期で行い、でき次第表示する
-            //SummarizeEmail(msg.id).then(sum => {
-            //    setSummary(sum);
-            // });
     
         } catch (err) {
             console.error("本文取得エラー:", err);
@@ -249,7 +248,7 @@ function App() {
         setMessages(prev => prev.map(m =>
             m.id === msg.id ? { ...m, is_read: 1 } : m
         ))
-        MarkAsRead(msg.id);
+        api.markAsRead(msg.id);
         /*
         setTimeout(async () => {
             const data = await GetMessagesByChannel(activeTab);
@@ -343,7 +342,7 @@ function App() {
                                 <div className="action-buttons">
                                 <button 
                                     className="console-link-btn" 
-                                    onClick={() => BrowserOpenURL("https://console.cloud.google.com")}
+                                    onClick={() => api.openExternal("https://console.cloud.google.com")}
                                 >
                                 🌐 Google Cloud Console を開く
                                 </button>
@@ -357,14 +356,14 @@ function App() {
                             <div className="auth-steps">
                                 <h2>🔑 Google ログイン</h2>
                                 <p>アプリを使用するために認証が必要です。</p>
-                                <button onClick={() => BrowserOpenURL(authURL)}>ブラウザを開いて承認</button>
+                                <button onClick={() => api.openExternal(authURL)}>ブラウザを開いて承認</button>
                                 <input 
                                     placeholder="表示されたコードを入力" 
                                     value={inputCode} 
                                     onChange={e => setInputCode(e.target.value)} 
                                 />
                                 <button onClick={async () => {
-                                    await CompleteAuth(inputCode);
+                                    await api.completeAuth(inputCode);
                                     setShowAuthModal(false);
                                     window.location.reload(); // 🌟 再起動してメール取得開始
                                 }}>認証を完了する</button>
