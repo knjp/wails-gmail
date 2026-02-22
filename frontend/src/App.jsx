@@ -134,6 +134,19 @@ function App() {
         }
     };
 
+    const handleCompleteAuth = async () => {
+        try {
+            // 1. api.js 経由で Go の HandleCompleteAuth を叩く
+            await api.completeAuth(inputCode);
+            
+            // 2. 成功したら画面をリロードして、a.srv が有効な状態で最初から始める
+            window.location.reload(); 
+        } catch (err) {
+            console.error("認証失敗:", err);
+            alert("認証に失敗しました。コードを再確認してください。");
+        }
+    };
+
     useEffect(() => {
         const handleMessage = (event) => {
             if (event.data.type === 'open_url') {
@@ -369,7 +382,8 @@ function App() {
                                     onChange={e => setInputCode(e.target.value)} 
                                 />
                                 <button onClick={async () => {
-                                    await api.completeAuth(inputCode);
+                                    // await api.completeAuth(inputCode);
+                                    handleCompleteAuth(inputCode)
                                     setShowAuthModal(false);
                                     window.location.reload(); // 🌟 再起動してメール取得開始
                                 }}>認証を完了する</button>

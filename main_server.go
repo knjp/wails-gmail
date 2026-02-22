@@ -33,7 +33,6 @@ func (a *App) registerHandlers() {
 	http.HandleFunc("/api/channels", a.HandleGetChannels)
 	http.HandleFunc("/api/reload-channels", a.HandleReloadChannels)
 	http.HandleFunc("/api/messages", a.HandleGetMessages)
-	http.HandleFunc("/auth/callback", a.HandleAuthCallback)
 	http.HandleFunc("/api/auth-url", a.HandleGetAuthURL)
 	http.HandleFunc("/api/message-body", a.HandleGetMessageBody)
 	http.HandleFunc("/api/sync", a.HandleSyncMessages)
@@ -43,6 +42,8 @@ func (a *App) registerHandlers() {
 	http.HandleFunc("/api/trash", a.HandleTrash)
 	http.HandleFunc("/api/ai-search", a.HandleAISearch)
 	http.HandleFunc("/api/mark-read", a.HandleMarkRead)
+	http.HandleFunc("/auth/callback", a.HandleAuthCallback)
+	http.HandleFunc("/api/complete-auth", a.HandleCompleteAuth)
 
 }
 
@@ -287,4 +288,28 @@ func (a *App) HandleMarkRead(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "success", "id": id})
 
 	fmt.Printf("📖 既読にしました: %s\n", id)
+}
+
+func (a *App) HandleCompleteAuth(w http.ResponseWriter, r *http.Request) {
+	// 1. URLパラメータまたはボディから code を取得
+	// React側が api.js の fetchApi で送ってくる形式に合わせます
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "認証コードが空です", http.StatusBadRequest)
+		return
+	}
+
+	// 2. 🌟 既存の CompleteAuth を呼び出す (ここで token.json 保存 & a.srv 起動)
+	err := a.CompleteAuth(code)
+	if err != nil {
+		fmt.Printf("❌ 認証完了処理に失敗: %v\n", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// 3. 成功のレスポンスを返す
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
+
+	fmt.Println("🔓 Web経由での認証が正常に完了しました")
 }
