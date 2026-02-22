@@ -20,24 +20,14 @@ function App() {
     const [showAuthModal, setShowAuthModal] = useState(false);
     const [authURL, setAuthURL] = useState("");
     const [inputCode, setInputCode] = useState("");
+    const [showJsonEditor, setShowJsonEditor] = useState(false);
+    const [rawJson, setRawJson] = useState("");
 
     const handleManualSummarize = async () => {
         setIsSummarizing(true);
         const sum = await api.summarizeEmail(selectedMsg.id);
         setSummary(sum);
         setIsSummarizing(false);
-    };
-
-    const handleLoadMore = async () => {
-        setLoading(true);
-        // Goを呼び出して、次のトークンを受け取る
-        const token = await api.syncHistoricalMessages(nextPageToken);
-        setNextPageToken(token);
-
-        // 表示を更新
-        const data = await api.getMessages(activeTab);
-        setMessages(data);
-        setLoading(false);
     };
 
     const handleAISearch = async () => {
@@ -54,6 +44,52 @@ function App() {
             }
         } catch (err) {
             console.error("検索失敗:", err);
+        }
+    };
+
+    const handleLoadMore = async () => {
+        setLoading(true);
+        // Goを呼び出して、次のトークンを受け取る
+        const token = await api.syncHistoricalMessages(nextPageToken);
+        setNextPageToken(token);
+
+        // 表示を更新
+        const data = await api.getMessages(activeTab);
+        setMessages(data);
+        setLoading(false);
+    };
+
+    const handleSelect = async (msg) => {
+        if (loadingBody) return;
+    
+        setSelectedMsg(msg);
+        setFullBody("読み込み中...");
+        setRelatedMsgs([]);
+        setSummary("");
+        setLoadingBody(true);
+    
+        // --- 1. 【爆速】手元のスニペットで関連検索を即座に開始 ---
+        api.getAISearchResults(msg.snippet).then(related => {
+            if (related) {
+                setRelatedMsgs(related.filter(r => r.id !== msg.id));
+            }
+        }).catch(err => console.error("関連検索エラー:", err));
+    
+        try {
+            // --- 2. 本文取得 ---
+            const body = await api.getMessageBody(msg.id);
+            setFullBody(body);
+
+           setMessages(prev => prev.map(m =>
+                m.id === msg.id ? { ...m, is_read: 1 } : m
+            ))
+            api.markAsRead(msg.id);
+    
+        } catch (err) {
+            console.error("本文取得エラー:", err);
+            setFullBody("エラーが発生しました。");
+        } finally {
+            setLoadingBody(false);
         }
     };
 
@@ -144,6 +180,30 @@ function App() {
         } catch (err) {
             console.error("認証失敗:", err);
             alert("認証に失敗しました。コードを再確認してください。");
+        }
+    };
+
+    // 🌟 編集開始ボタンの処理
+    const handleOpenEditor = async () => {
+        try {
+            const text = await api.getChannelsRaw();
+            setRawJson(text);
+            setShowJsonEditor(true);
+        } catch (err) {
+            alert("設定の読み込みに失敗しました: " + err.message);
+        }
+    };
+    
+    // 🌟 保存ボタンの処理
+    const handleSaveConfig = async () => {
+        try {
+            await api.saveChannelsRaw(rawJson);
+            setShowJsonEditor(false);
+            // 🌟 保存後にサイドバーを最新化する（以前作った関数）
+            handleReloadChannels(); 
+            alert("✅ 設定を保存し、反映しました！");
+        } catch (err) {
+            alert("❌ 保存失敗: " + err.message);
         }
     };
 
@@ -242,40 +302,6 @@ function App() {
             }
         }
     }, [fullBody]); // 🌟 fullBody の変化を監視
-
-    const handleSelect = async (msg) => {
-        if (loadingBody) return;
-    
-        setSelectedMsg(msg);
-        setFullBody("読み込み中...");
-        setRelatedMsgs([]);
-        setSummary("");
-        setLoadingBody(true);
-    
-        // --- 1. 【爆速】手元のスニペットで関連検索を即座に開始 ---
-        api.getAISearchResults(msg.snippet).then(related => {
-            if (related) {
-                setRelatedMsgs(related.filter(r => r.id !== msg.id));
-            }
-        }).catch(err => console.error("関連検索エラー:", err));
-    
-        try {
-            // --- 2. 本文取得 ---
-            const body = await api.getMessageBody(msg.id);
-            setFullBody(body);
-
-           setMessages(prev => prev.map(m =>
-                m.id === msg.id ? { ...m, is_read: 1 } : m
-            ))
-            api.markAsRead(msg.id);
-    
-        } catch (err) {
-            console.error("本文取得エラー:", err);
-            setFullBody("エラーが発生しました。");
-        } finally {
-            setLoadingBody(false);
-        }
-    };
 
     //
     // メッセージリストを日付順に整理
@@ -392,6 +418,27 @@ function App() {
                     </div>
                 </div>
             )}
+            {showJsonEditor && (
+                <div className="auth-overlay">
+                    <div className="auth-card" style={{ width: '80%', height: '80%', maxWidth: '800px' }}>
+                        <h3>⚙️ チャンネル設定 (JSON 編集)</h3>
+                        <p style={{fontSize: '0.8rem', color: '#666'}}>JSON形式で入力してください。保存時にバリデーションが行われます。</p>
+                        <textarea
+                            style={{
+                                width: '100%', height: '70%', 
+                                fontFamily: 'monospace', fontSize: '14px',
+                                padding: '10px', border: '1px solid #ccc'
+                            }}
+                            value={rawJson}
+                            onChange={(e) => setRawJson(e.target.value)}
+                        />
+                        <div style={{ marginTop: '20px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
+                            <button onClick={() => setShowJsonEditor(false)}>キャンセル</button>
+                            <button onClick={handleSaveConfig} className="summary-btn">💾 保存して反映</button>
+                        </div>
+                    </div>
+                </div>
+            )}
             <div className="main-layout">
 
                 {/* 左端：チャンネルリスト（旧タブバー） */}
@@ -424,6 +471,11 @@ function App() {
                             # {name}
                         </div>
                     ))}
+                    <div className="sidebar-footer">
+                        <button className="settings-btn" onClick={handleOpenEditor}>
+                            ⚙️ チャンネル設定を編集
+                        </button>
+                    </div>
                 </div>
 
                 {/* 中央：メールリスト */}

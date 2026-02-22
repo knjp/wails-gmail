@@ -151,5 +151,29 @@ export const api = {
     completeAuth: async (code) => {
         if (isWeb) return fetchApi("/api/complete-auth", { code }, 'POST');
         return window?.go?.main?.App?.CompleteAuth(code);
+    },
+
+    getChannelsRaw: async () => {
+        if (isWeb) {
+            return fetch("/api/channels/raw").then(r => r.text()); // JSONではなくtextで受ける
+        }
+        // Wails版（必要ならGo側に GetChannelsRaw を追加してください）
+        return window?.go?.main?.App?.GetChannelsRaw();
+    },
+
+    // 🌟 2. 編集したテキストを保存
+    saveChannelsRaw: async (jsonText) => {
+        if (isWeb) {
+            const response = await fetch("/api/channels/save", {
+                method: 'POST',
+                body: jsonText // そのまま文字列を投げる
+            });
+            if (!response.ok) {
+                const errMsg = await response.text();
+                throw new Error(errMsg);
+            }
+            return await response.json();
+        }
+        return window?.go?.main?.App?.SaveChannelsRaw(jsonText);
     }
 };

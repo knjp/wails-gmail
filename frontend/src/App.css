@@ -136,7 +136,42 @@ body, html, #App {
     color: #1e293b;
     border-style: solid;
 }
+.channel-sidebar {
+    display: flex;
+    flex-direction: column; /* 縦に並べる */
+    height: 100vh;
+}
 
+.channel-list {
+    flex: 1; /* 🌟 余ったスペースをすべて埋めて、footerを下に押し出す */
+    overflow-y: auto;
+}
+
+.sidebar-footer {
+    padding: 15px;
+    border-top: 1px solid #e2e8f0;
+    background: #f8fafc;
+}
+
+.settings-btn {
+    width: 100%;
+    padding: 10px;
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.settings-btn:hover {
+    background: #f1f5f9;
+    border-color: #94a3b8;
+}
 /* 左ペイン：リスト */
 .mail-list-pane {
   width: 350px;
