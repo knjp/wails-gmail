@@ -9,6 +9,7 @@ import (
 	"html"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -74,6 +75,7 @@ type SearchResult struct {
 
 type Config struct {
 	MyAddress    string `json:"my_address"`
+	OllamaHost   string `json:"ollama_host"`
 	OllamaModel  string `json:"ollama_model"`
 	EmbedModel   string `json:"embed_model"`
 	SyncInterval int    `json:"sync_interval"`
@@ -173,12 +175,12 @@ func (a *App) initDirs() {
 }
 
 func (a *App) loadSettings() {
-	//confPath := "config/settings.json"
 	data, err := os.ReadFile(settingsFile)
 	if err != nil {
 		// ファイルがない場合はデフォルト値をセットして保存しておく（親切設計）
 		globalConfig = Config{
 			MyAddress:    "your-email@gmail.com",
+			OllamaHost:   "http://localhost:11434",
 			OllamaModel:  "qwen2.5:1.5b",
 			EmbedModel:   "nomic-embed-text",
 			SyncInterval: 60,
@@ -238,11 +240,13 @@ func (a *App) initDB() error {
 }
 
 func (a *App) initAI() error {
-	ollama_client, err := api.ClientFromEnvironment()
+	u, err := url.Parse(globalConfig.OllamaHost)
 	if err != nil {
-		return err
+		return fmt.Errorf("OllamaHostの形式が不正です: %w", err)
 	}
-	a.ollama = ollama_client
+	client := api.NewClient(u, http.DefaultClient)
+	a.ollama = client
+	fmt.Printf("🤖 AI 接続完了: %s (モデル: %s)\n", globalConfig.OllamaHost, globalConfig.OllamaModel)
 	return nil
 }
 
@@ -287,7 +291,6 @@ func (a *App) startBackgroundTasks() {
 
 	}()
 
-	// startup 内
 	go func() {
 		interval := time.Duration(globalConfig.SyncInterval) * time.Second
 		for {
