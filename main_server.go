@@ -47,6 +47,8 @@ func (a *App) registerHandlers() {
 	http.HandleFunc("/api/complete-auth", a.HandleCompleteAuth)
 	http.HandleFunc("/api/channels/raw", a.HandleGetChannelsRaw)
 	http.HandleFunc("/api/channels/save", a.HandleSaveChannelsRaw)
+	http.HandleFunc("/api/settings/raw", a.HandleGetSettingsRaw)
+	http.HandleFunc("/api/settings/save", a.HandleSaveSettingsRaw)
 }
 
 // 🌟 1. メールの同期（最新件数）
@@ -331,6 +333,29 @@ func (a *App) HandleSaveChannelsRaw(w http.ResponseWriter, r *http.Request) {
 
 	// 🌟 共通ロジックに丸投げ！
 	err := a.SaveChannelsRaw(string(body))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Write([]byte(`{"status":"success"}`))
+}
+
+// 🌟 1. settings.json の中身をテキストで返す
+func (a *App) HandleGetSettingsRaw(w http.ResponseWriter, r *http.Request) {
+	data, err := a.GetSettingsRaw()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Write([]byte(data))
+}
+
+// 🌟 2. 編集された settings.json を保存
+func (a *App) HandleSaveSettingsRaw(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
+
+	err := a.SaveSettingsRaw(string(body))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return

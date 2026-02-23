@@ -1108,3 +1108,28 @@ func (a *App) SaveChannelsRaw(jsonText string) error {
 	}
 	return err
 }
+
+// 🌟 デスクトップ・Web共通の「生のJSON読み込み」
+func (a *App) GetSettingsRaw() (string, error) {
+	data, err := os.ReadFile(settingsFile)
+	if err != nil {
+		return "", err
+	}
+	return string(data), err
+}
+
+func (a *App) SaveSettingsRaw(jsonText string) error {
+	var temp Config
+	if err := json.Unmarshal([]byte(jsonText), &temp); err != nil {
+		return fmt.Errorf("JSON形式が不正です: %w", err)
+	}
+
+	if err := os.WriteFile(settingsFile, []byte(jsonText), 0644); err != nil {
+		return err
+	}
+
+	// 🌟 サーバー側の設定値(globalConfig)も即座に同期
+	globalConfig = temp
+	fmt.Println("⚙️ settings.json を更新し、メモリに反映しました")
+	return nil
+}

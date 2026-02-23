@@ -22,6 +22,9 @@ function App() {
     const [inputCode, setInputCode] = useState("");
     const [showJsonEditor, setShowJsonEditor] = useState(false);
     const [rawJson, setRawJson] = useState("");
+    const [showSettingsEditor, setShowSettingsEditor] = useState(false);
+    const [rawSettings, setRawSettings] = useState("");
+
 
     const handleManualSummarize = async () => {
         setIsSummarizing(true);
@@ -138,8 +141,7 @@ function App() {
             // 2. 🌟 重要：更新されたDBから最新のリストを「再度」取得して画面にセットする
             const newTabs = await api.getChannels(); 
             setTabs(newTabs || []);
-            
-            alert("チャンネル設定を更新しました！");
+            // alert("チャンネル設定を更新しました！");
         } catch (err) {
             console.error("リロード失敗:", err);
         }
@@ -184,7 +186,7 @@ function App() {
     };
 
     // 🌟 編集開始ボタンの処理
-    const handleOpenEditor = async () => {
+    const handleOpenChannels = async () => {
         try {
             const text = await api.getChannelsRaw();
             setRawJson(text);
@@ -195,13 +197,33 @@ function App() {
     };
     
     // 🌟 保存ボタンの処理
-    const handleSaveConfig = async () => {
+    const handleSaveChannels = async () => {
         try {
             await api.saveChannelsRaw(rawJson);
             setShowJsonEditor(false);
             // 🌟 保存後にサイドバーを最新化する（以前作った関数）
             handleReloadChannels(); 
             alert("✅ 設定を保存し、反映しました！");
+        } catch (err) {
+            alert("❌ 保存失敗: " + err.message);
+        }
+    };
+
+    const handleOpenSettings = async () => {
+        try {
+            const text = await api.getSettingsRaw(); // 🌟 api.js に追加したやつ
+            setRawSettings(text);
+            setShowSettingsEditor(true);
+        } catch (err) {
+            alert("設定の取得に失敗: " + err.message);
+        }
+    };
+
+    const handleSaveSettings = async () => {
+        try {
+            await api.saveSettingsRaw(rawSettings); // 🌟 api.js に追加したやつ
+            setShowSettingsEditor(false);
+            alert("✅ 設定を更新しました。再起動なしで反映されます！");
         } catch (err) {
             alert("❌ 保存失敗: " + err.message);
         }
@@ -434,7 +456,28 @@ function App() {
                         />
                         <div style={{ marginTop: '20px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
                             <button onClick={() => setShowJsonEditor(false)}>キャンセル</button>
-                            <button onClick={handleSaveConfig} className="summary-btn">💾 保存して反映</button>
+                            <button onClick={handleSaveChannels} className="summary-btn">💾 保存して反映</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {showSettingsEditor && (
+                <div className="auth-overlay">
+                    <div className="auth-card" style={{ width: '80%', height: '80%' }}>
+                        <h3>🔧 アプリ基本設定 (settings.json)</h3>
+                        <textarea
+                            style={{
+                                width: '100%', height: '70%', 
+                                fontFamily: 'monospace', fontSize: '14px',
+                                padding: '10px', border: '1px solid #ccc'
+                            }}
+                            className="json-textarea"
+                            value={rawSettings}
+                            onChange={(e) => setRawSettings(e.target.value)}
+                        />
+                        <div className="modal-buttons">
+                            <button onClick={() => setShowSettingsEditor(false)}>キャンセル</button>
+                            <button onClick={handleSaveSettings} className="save-btn">💾 保存して反映</button>
                         </div>
                     </div>
                 </div>
@@ -455,17 +498,16 @@ function App() {
                         />
                         <button onClick={handleAISearch}>検索</button>
                     </div>
+                    
                     <div className="sidebar-header">CHANNELS</div>
                     <div className="sidebar-footer">
-                        <button className="settings-btn" onClick={handleOpenEditor}>
-                            ⚙️ チャンネル設定を編集
+                        <button className="settings-btn" onClick={handleOpenChannels}>
+                            ⚙️ チャンネル設定
+                        </button>
+                        <button className="settings-btn" onClick={handleOpenSettings} style={{marginTop: '10px'}}>
+                            🔧 アプリ基本設定
                         </button>
                     </div>
-
-                        {/* 🌟 再読み込みボタン 🌟 */}
-                    <button onClick={handleReloadChannels} className="reload-channels-btn">
-                        🔄 設定を反映
-                    </button>
 
                     {tabs.map(name => (
                         <div 

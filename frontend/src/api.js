@@ -157,11 +157,9 @@ export const api = {
         if (isWeb) {
             return fetch("/api/channels/raw").then(r => r.text()); // JSONではなくtextで受ける
         }
-        // Wails版（必要ならGo側に GetChannelsRaw を追加してください）
         return window?.go?.main?.App?.GetChannelsRaw();
     },
 
-    // 🌟 2. 編集したテキストを保存
     saveChannelsRaw: async (jsonText) => {
         if (isWeb) {
             const response = await fetch("/api/channels/save", {
@@ -175,5 +173,28 @@ export const api = {
             return await response.json();
         }
         return window?.go?.main?.App?.SaveChannelsRaw(jsonText);
+    },
+
+    getSettingsRaw: async () => {
+        if (isWeb) {
+            return fetch("/api/settings/raw").then(r => r.text()); // JSONではなくtextで受ける
+        }
+        return window?.go?.main?.App?.GetSettingsRaw();
+    },
+
+    saveSettingsRaw: async (jsonText) => {
+        if (isWeb) {
+            const response = await fetch("/api/settings/save", {
+                method: 'POST',
+                body: jsonText // そのまま文字列を投げる
+            });
+            if (!response.ok) {
+                const errMsg = await response.text();
+                throw new Error(errMsg);
+            }
+            return await response.json();
+        }
+        return window?.go?.main?.App?.SaveSettingsRaw(jsonText);
     }
+
 };
