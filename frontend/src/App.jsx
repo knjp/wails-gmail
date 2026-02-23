@@ -455,8 +455,13 @@ function App() {
                         />
                         <button onClick={handleAISearch}>検索</button>
                     </div>
-
                     <div className="sidebar-header">CHANNELS</div>
+                    <div className="sidebar-footer">
+                        <button className="settings-btn" onClick={handleOpenEditor}>
+                            ⚙️ チャンネル設定を編集
+                        </button>
+                    </div>
+
                         {/* 🌟 再読み込みボタン 🌟 */}
                     <button onClick={handleReloadChannels} className="reload-channels-btn">
                         🔄 設定を反映
@@ -471,11 +476,6 @@ function App() {
                             # {name}
                         </div>
                     ))}
-                    <div className="sidebar-footer">
-                        <button className="settings-btn" onClick={handleOpenEditor}>
-                            ⚙️ チャンネル設定を編集
-                        </button>
-                    </div>
                 </div>
 
                 {/* 中央：メールリスト */}

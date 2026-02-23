@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"strconv"
 	"time"
 )
@@ -317,45 +316,25 @@ func (a *App) HandleCompleteAuth(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("🔓 Web経由での認証が正常に完了しました")
 }
 
-// 🌟 1. 現在の channels.json の中身を「生のテキスト」として返す
 func (a *App) HandleGetChannelsRaw(w http.ResponseWriter, r *http.Request) {
-	data, err := os.ReadFile("config/channels.json")
+	// 🌟 共通ロジックを呼び出すだけ！
+	data, err := a.GetChannelsRaw()
 	if err != nil {
-		http.Error(w, "設定ファイルの読み込みに失敗しました: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	// JSONとしてではなく、プレーンテキストとしてそのまま流し込む
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Write(data)
+	w.Write([]byte(data))
 }
 
-// 🌟 2. 画面で編集されたテキストを受け取って保存し、DBを更新する
 func (a *App) HandleSaveChannelsRaw(w http.ResponseWriter, r *http.Request) {
-	// リクエストボディ（編集後のテキスト）を丸ごと読み込む
-	body, err := io.ReadAll(r.Body)
+	body, _ := io.ReadAll(r.Body)
+
+	// 🌟 共通ロジックに丸投げ！
+	err := a.SaveChannelsRaw(string(body))
 	if err != nil {
-		http.Error(w, "データの読み取りに失敗しました", http.StatusBadRequest)
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	// 🛡️ 最低限のバリデーション：JSONとして正しいかチェック
-	var temp []interface{}
-	if err := json.Unmarshal(body, &temp); err != nil {
-		http.Error(w, "JSONの形式が正しくありません。保存を中止しました。", http.StatusBadRequest)
-		return
-	}
-
-	// 💾 ファイルに書き込む (0644は自分は読み書き、他人は読み込みのみ)
-	err = os.WriteFile("config/channels.json", body, 0644)
-	if err != nil {
-		http.Error(w, "ファイルへの保存に失敗しました", http.StatusInternalServerError)
-		return
-	}
-
-	// ♻️ DB側の channels テーブルも即座に最新化する（既存の関数を流用！）
-	a.LoadChannelsFromJson()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
-	fmt.Println("📝 オンラインエディタ経由で channels.json を更新しました")
+	w.Write([]byte(`{"status":"success"}`))
 }

@@ -58,6 +58,15 @@ type App struct {
 	isCleaning bool
 }
 
+const (
+	channelsFile    = "config/channels.json"
+	channelsExample = "config/channels.json.example"
+	settingsFile    = "config/settings.json"
+	tokenFile       = "config/token.json"
+	credentialsFile = "config/credentials.json"
+	mailDBFile      = "db/mail_cache.db"
+)
+
 type SearchResult struct {
 	ID    string  `json:"id"`
 	Score float32 `json:"score"`
@@ -81,24 +90,26 @@ func (a *App) GetConfig() Config {
 }
 
 func (a *App) LoadChannelsFromJson() error {
-	target := "config/channels.json"
-	example := "config/channels.json.example"
-
-	if _, err := os.Stat(target); os.IsNotExist(err) {
+	if _, err := os.Stat(channelsFile); os.IsNotExist(err) {
 		// target が存在しない場合、example があるか確認
-		if data, err := os.ReadFile(example); err == nil {
+		if data, err := os.ReadFile(channelsExample); err == nil {
 			// example の中身を target に書き込む（＝コピー）
-			os.WriteFile(target, data, 0644)
+			os.WriteFile(channelsFile, data, 0644)
 			fmt.Println("📝 example から設定ファイルを作成しました")
 		} else {
 			// example もない場合は、「最低限のデフォルト」を作成
-			defaultChannels := `[{"name": "📥 受信トレイ", "query": "is:unread", "ttl_days": 0}]`
-			os.WriteFile(target, []byte(defaultChannels), 0644)
+			defaultChannels := `[
+	{"name": "📥 受信トレイ", "query": "1=1", "ttl_days": 0},
+	{"name": "📥 00未読", "query": "id IN (SELECT id FROM messages WHERE sender NOT LIKE '%メルマガ%') AND is_read = 0", "ttl_days": 0},
+	{"name": "gmail", "query": "sender LIKE '%gmail%' OR sender LIKE '%google%'", "ttl_days": 0},
+	{"name": "amazon", "query": "sender LIKE '%amazon.co.jp%' OR sender LIKE '%amazon.com%'", "ttl_days": 0}
+]`
+			os.WriteFile(channelsFile, []byte(defaultChannels), 0644)
 			fmt.Println("⚠️ デフォルト設定を作成しました")
 		}
 	}
 
-	data, err := os.ReadFile(target)
+	data, err := os.ReadFile(channelsFile)
 	if err != nil {
 		return fmt.Errorf("ファイルの読み込みに失敗: %w", err) // 🌟 黙って return しない
 	}
@@ -113,8 +124,6 @@ func (a *App) LoadChannelsFromJson() error {
 		return fmt.Errorf("設定ファイルが空です")
 	}
 
-	//	var configs []ChannelConfig
-	//	json.Unmarshal(data, &configs)
 	// 🌟 トランザクションで「全消し」と「書き込み」をセットにする
 	tx, err := a.db.Begin()
 	if err != nil {
@@ -164,8 +173,8 @@ func (a *App) initDirs() {
 }
 
 func (a *App) loadSettings() {
-	confPath := "config/settings.json"
-	data, err := os.ReadFile(confPath)
+	//confPath := "config/settings.json"
+	data, err := os.ReadFile(settingsFile)
 	if err != nil {
 		// ファイルがない場合はデフォルト値をセットして保存しておく（親切設計）
 		globalConfig = Config{
@@ -175,7 +184,7 @@ func (a *App) loadSettings() {
 			SyncInterval: 60,
 		}
 		defaultData, _ := json.MarshalIndent(globalConfig, "", "  ")
-		os.WriteFile(confPath, defaultData, 0644)
+		os.WriteFile(settingsFile, defaultData, 0644)
 		fmt.Println("📝 デフォルト設定ファイルを作成しました")
 	} else {
 		// 既存ファイルを構造体に流し込む
@@ -185,7 +194,7 @@ func (a *App) loadSettings() {
 }
 
 func (a *App) initDB() error {
-	db, err := sql.Open("sqlite", "db/mail_cache.db")
+	db, err := sql.Open("sqlite", mailDBFile)
 	if err != nil {
 		log.Fatal(err)
 		return err
@@ -240,7 +249,7 @@ func (a *App) initAI() error {
 func (a *App) initGmailService() error {
 
 	// Gmail API の初期化 (credentials.json と token.json がある前提)
-	b, err := os.ReadFile("config/credentials.json")
+	b, err := os.ReadFile(credentialsFile)
 	if err != nil {
 		// log.Printf("credentials.json 読み込み失敗: %v", err)
 		return err
@@ -290,14 +299,12 @@ func (a *App) startBackgroundTasks() {
 }
 
 func (a *App) GetAuthURL() (string, error) {
-	tokFile := "config/token.json"
-	credFile := "config/credentials.json"
 
-	if _, err := os.Stat(credFile); os.IsNotExist(err) {
+	if _, err := os.Stat(credentialsFile); os.IsNotExist(err) {
 		return "MISSING_CREDENTIALS", nil
 	}
 
-	_, err := os.Stat(tokFile)
+	_, err := os.Stat(tokenFile)
 	if err == nil {
 		// 🌟 token.json が既に存在するなら、認証URLは不要
 		return "", nil
@@ -320,7 +327,7 @@ func (a *App) CompleteAuth(code string) error {
 	if err != nil {
 		return err
 	}
-	saveToken("config/token.json", tok)
+	saveToken(tokenFile, tok)
 	client := config.Client(context.Background(), tok)
 	srv, err := gmail.NewService(context.Background(), option.WithHTTPClient(client))
 	if err != nil {
@@ -333,7 +340,7 @@ func (a *App) CompleteAuth(code string) error {
 
 func (a *App) getOAuthConfig() (*oauth2.Config, error) {
 	// 1. ダウンロードした秘密の鍵ファイルを読み込む
-	b, err := os.ReadFile("config/credentials.json")
+	b, err := os.ReadFile(credentialsFile)
 	if err != nil {
 		return nil, fmt.Errorf("credentials.json が見つかりません: %v", err)
 	}
@@ -349,9 +356,8 @@ func (a *App) getOAuthConfig() (*oauth2.Config, error) {
 
 // / getClient: トークンを読み込んで Client を返す（なければエラーを返す）
 func (a *App) getClient(config *oauth2.Config) (*http.Client, error) {
-	tokFile := "config/token.json"
 
-	data, err := os.ReadFile(tokFile)
+	data, err := os.ReadFile(tokenFile)
 	if err != nil {
 		return nil, fmt.Errorf("token.json がありません。認証が必要です")
 	}
@@ -1077,4 +1083,28 @@ func (a *App) RunAutoCleanup() {
 			time.Sleep(500 * time.Millisecond)
 		}
 	}
+}
+
+// 🌟 デスクトップ・Web共通の「生のJSON読み込み」
+func (a *App) GetChannelsRaw() (string, error) {
+	data, err := os.ReadFile(channelsFile)
+	if err != nil {
+		return "", err
+	}
+	return string(data), err
+}
+
+// 🌟 デスクトップ・Web共通の「保存」
+func (a *App) SaveChannelsRaw(jsonText string) error {
+	// バリデーション (JSONとして正しいか)
+	var temp []interface{}
+	if err := json.Unmarshal([]byte(jsonText), &temp); err != nil {
+		return fmt.Errorf("JSON形式が不正です: %w", err)
+	}
+	// 保存
+	err := os.WriteFile(channelsFile, []byte(jsonText), 0644)
+	if err == nil {
+		a.LoadChannelsFromJson() // DB反映
+	}
+	return err
 }
