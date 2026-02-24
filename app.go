@@ -419,16 +419,16 @@ func (a *App) SyncMessages() error {
 
 		var sender, subject, to, cc string
 		for _, h := range msg.Payload.Headers {
-			if h.Name == "From" {
+			if strings.EqualFold(h.Name, "From") {
 				sender = h.Value
 			}
-			if h.Name == "Subject" {
+			if strings.EqualFold(h.Name, "Subject") {
 				subject = h.Value
 			}
-			if h.Name == "To" {
+			if strings.EqualFold(h.Name, "To") {
 				to = h.Value
 			}
-			if h.Name == "Cc" {
+			if strings.EqualFold(h.Name, "Cc") {
 				cc = h.Value
 			}
 		}
@@ -691,16 +691,16 @@ func (a *App) SyncHistoricalMessages(pageToken string) (string, error) {
 		// ヘッダー解析（差出人・件名）
 		var sender, subject, to, cc string
 		for _, h := range msg.Payload.Headers {
-			if h.Name == "From" {
+			if strings.EqualFold(h.Name, "From") {
 				sender = h.Value
 			}
-			if h.Name == "Subject" {
+			if strings.EqualFold(h.Name, "Subject") {
 				subject = h.Value
 			}
-			if h.Name == "To" {
+			if strings.EqualFold(h.Name, "To") {
 				to = h.Value
 			}
-			if h.Name == "Cc" {
+			if strings.EqualFold(h.Name, "Cc") {
 				cc = h.Value
 			}
 		}

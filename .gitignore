@@ -66,3 +66,6 @@ settings.json
 # TMP ディレクトリも
 tmp/*
 !tmp/.gitkeep
+
+# docker ディレクトリも
+docker/*

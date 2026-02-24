@@ -15,7 +15,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 # 🌟 serverタグを付けてビルド！
-RUN go build -tags server -o gmail-app main_server.go app.go auth.go
+RUN go build -tags server -o gmail-app main_server.go app.go auth.go procdb.go
 
 # --- ステージ3: 実行用（超軽量イメージ） ---
 FROM alpine:latest

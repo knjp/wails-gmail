@@ -611,6 +611,7 @@ function App() {
                             {/* 4. 本文 */}
                             <div className="email-body-container">
                                 <iframe
+                                    key={`${selectedMsg.id}`}
                                     title="body"
                                     className="email-body-frame"
                                     srcDoc={fullBody} 
