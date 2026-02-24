@@ -241,8 +241,9 @@ func (a *App) HandleGetMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) HandleGetMessageBody(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	id := r.URL.Query().Get("id")
-	body, err := a.GetMessageBody(id) // 既存の関数を呼ぶだけ！
+	body, err := a.GetMessageBodyWithContext(ctx, id)
 	if err != nil {
 		fmt.Printf("Body err: %s\n", err)
 	}

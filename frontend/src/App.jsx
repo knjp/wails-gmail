@@ -62,25 +62,26 @@ function App() {
         setLoading(false);
     };
 
+    let currentAbortController = null;
+
     const handleSelect = async (msg) => {
-        if (loadingBody) return;
+        // if (loadingBody) return;
+        if (currentAbortController) {
+            currentAbortController.abort();
+        }
+        currentAbortController = new AbortController();
+        const { signal } = currentAbortController;
     
         setSelectedMsg(msg);
         setFullBody("読み込み中...");
+        setLoadingBody(true);
         setRelatedMsgs([]);
         setSummary("");
-        setLoadingBody(true);
-    
-        // --- 1. 【爆速】手元のスニペットで関連検索を即座に開始 ---
-        api.getAISearchResults(msg.snippet).then(related => {
-            if (related) {
-                setRelatedMsgs(related.filter(r => r.id !== msg.id));
-            }
-        }).catch(err => console.error("関連検索エラー:", err));
-    
+
+        await new Promise(resolve => setTimeout(resolve, 20));
+
         try {
-            // --- 2. 本文取得 ---
-            const body = await api.getMessageBody(msg.id);
+            const body = await api.getMessageBody(msg.id, { signal } );
             setFullBody(body);
 
            setMessages(prev => prev.map(m =>
@@ -89,11 +90,22 @@ function App() {
             api.markAsRead(msg.id);
     
         } catch (err) {
-            console.error("本文取得エラー:", err);
+            //console.error("本文取得エラー:", err);
+            //setFullBody("エラーが発生しました。");
+            if (err.name === 'AbortError') {
+                console.log("前のリクエストをキャンセルしました");
+                return; // キャンセル時は何もしない
+            }
             setFullBody("エラーが発生しました。");
         } finally {
             setLoadingBody(false);
         }
+
+        api.getAISearchResults(msg.snippet).then(related => {
+            if (related) {
+                setRelatedMsgs(related.filter(r => r.id !== msg.id));
+            }
+        }).catch(err => console.error("関連検索エラー:", err));
     };
 
     const handleDelete = async (msg) => {
@@ -313,6 +325,7 @@ function App() {
         }
     }, [showAuthModal]); // 🌟 showAuthModal の変化を監視
 
+    /*
     useEffect(() => {
         // 🌟 fullBody が更新されたら、自動で iframe に「描画せよ！」と命じる
         if (fullBody && fullBody !== "読み込み中..." && fullBody !== "エラーが発生しました。") {
@@ -324,6 +337,7 @@ function App() {
             }
         }
     }, [fullBody]); // 🌟 fullBody の変化を監視
+    */
 
     //
     // メッセージリストを日付順に整理
@@ -611,7 +625,7 @@ function App() {
                             {/* 4. 本文 */}
                             <div className="email-body-container">
                                 <iframe
-                                    key={`${selectedMsg.id}`}
+                                    key={`${selectedMsg.id}` || 'empty'}
                                     title="body"
                                     className="email-body-frame"
                                     srcDoc={fullBody} 

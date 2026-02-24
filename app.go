@@ -535,9 +535,18 @@ func (a *App) MarkAsRead(id string) error {
 }
 
 func (a *App) GetMessageBody(id string) (string, error) {
+	return a.GetMessageBodyWithContext(context.Background(), id)
+}
+
+func (a *App) GetMessageBodyWithContext(ctx context.Context, id string) (string, error) {
 	// 1. まずは SQLite に本文が保存されていないか確認
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	default:
+	}
 	var cachedBody string
-	err := a.db.QueryRow("SELECT body FROM messages WHERE id = ?", id).Scan(&cachedBody)
+	err := a.db.QueryRowContext(ctx, "SELECT body FROM messages WHERE id = ?", id).Scan(&cachedBody)
 
 	// DBに本文（長さ1以上）があれば、それを即座に返す
 	if err == nil && len(cachedBody) > 0 {
