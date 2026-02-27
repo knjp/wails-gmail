@@ -240,11 +240,25 @@ func (a *App) initDB() error {
 }
 
 func (a *App) initAI() error {
+	// URL構文チェックだけは必ず行う
 	u, err := url.Parse(globalConfig.OllamaHost)
 	if err != nil {
 		return fmt.Errorf("OllamaHostの形式が不正です: %w", err)
 	}
+
 	client := api.NewClient(u, http.DefaultClient)
+
+	// 簡易ヘルスチェック: 小さなEmbeddingリクエストを送信して接続確認
+	// 接続失敗時は a.ollama を nil にして AI 機能を無効化する
+	if _, err := client.Embeddings(context.Background(), &api.EmbeddingRequest{
+		Model:  globalConfig.EmbedModel,
+		Prompt: "ping",
+	}); err != nil {
+		fmt.Printf("🤖 AI 接続失敗: %v. AI機能は無効化されます\n", err)
+		a.ollama = nil
+		return nil
+	}
+
 	a.ollama = client
 	fmt.Printf("🤖 AI 接続完了: %s (モデル: %s)\n", globalConfig.OllamaHost, globalConfig.OllamaModel)
 	return nil
@@ -747,6 +761,10 @@ func (a *App) SyncHistoricalMessages(pageToken string) (string, error) {
 
 // AISearch は「あいまい検索」を実行して、スコアの高い順に ID を返します
 func (a *App) AISearch(query string) ([]SearchResult, error) {
+	if a.ollama == nil {
+		// AIが利用できない場合は空結果
+		return []SearchResult{}, nil
+	}
 	// 1. 検索クエリをベクトル化
 	req := &api.EmbeddingRequest{
 		Model:  globalConfig.EmbedModel,
@@ -798,6 +816,10 @@ func (a *App) AISearch(query string) ([]SearchResult, error) {
 
 // GetAISearchResults は AI 検索の結果を元に、メッセージ詳細のリストを返します
 func (a *App) GetAISearchResults(query string) ([]MessageSummary, error) {
+	if a.ollama == nil {
+		// AIが使えないなら検索自体をスキップ
+		return []MessageSummary{}, nil
+	}
 	// 1. まずは既存の AISearch ロジックで ID とスコアを取得
 	// (先ほど作った AISearch 関数を流用するか、そのロジックをここに書く)
 	searchResults, err := a.AISearch(query)
@@ -897,6 +919,10 @@ func cleanForAI(htmlStr string) string {
 }
 
 func (a *App) ExtractDeadlines(id string) error {
+	// Ollamaが無効なら何もせずに戻る
+	if a.ollama == nil {
+		return nil
+	}
 	var body string
 
 	var err error

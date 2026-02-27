@@ -73,6 +73,11 @@ func (s *Store) GetAll() ([]EmailRecord, error) {
 var vectorSemaphore = make(chan struct{}, 1)
 
 func (a *App) SyncEmailVector(gmailID string, bodyText string) error {
+	// Ollamaクライアントが未設定なら何もしない
+	if a.ollama == nil {
+		return nil
+	}
+
 	vectorSemaphore <- struct{}{}
 	defer func() { <-vectorSemaphore }()
 
