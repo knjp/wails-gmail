@@ -227,8 +227,8 @@ func (a *App) initDB() error {
 	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);")
 	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);")
 	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_deadline ON messages(deadline);")
-	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(deadline);")
-	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_importance ON messages(deadline);")
+	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(is_read);")
+	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_importance ON messages(importance);")
 	fmt.Println("✅ インデックスの作成/確認が完了しました")
 
 	s, err := NewStore(a.db)
