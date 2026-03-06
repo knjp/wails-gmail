@@ -532,20 +532,28 @@ function App() {
                         <h3>🚀 Workspaces</h3>
                     </div>
 
-                    <div className="channel-list">
+                    <div className="channel-list p-4 flex flex-col gap-4">
                         {workspaces?.map(group => {
                             const isExpanded = activeGroup === group.group_name;
 
                             return (
-                                <div key={group.group_name} className="sidebar-group">
-                                    <div 
-                                        className={`group-label clickable ${activeTab === group.group_name ? 'active' : ''}`}
-                                        onClick={() => {
-                                            setActiveGroup(isExpanded ? null : group.group_name);
-                                            setActiveTab(group.group_name);
-                                        }}
-                                    >
-                                    {isExpanded ? '▼' : '▶'}{group.group_name}
+                                <div key={group.group_name} className="sidebar-group flex flex-col gap-1">
+                                <div 
+                                    // 🌟 text-xl (大きく), font-bold (太字), p-2 (余白), rounded (角丸)
+                                    // hover:bg-slate-100 (マウスを乗せた時に薄いグレー)
+                                    className={`cursor-pointer text-xl font-bold p-2 rounded transition-all duration-200 flex items-center gap-2 ${
+                                        activeTab === group.group_name 
+                                            ? 'bg-blue-600 text-white shadow-lg scale-[1.02]' // 🌟 選択中：鮮やかな青背景に白文字＋影
+                                            : 'hover:bg-slate-200 text-slate-700' // 🌟 未選択：ホバーで薄いグレー
+                                    }`}
+                                    onClick={() => {
+                                        setActiveGroup(isExpanded ? null : group.group_name);
+                                        setActiveTab(group.group_name);
+                                    }}
+                                >
+                                    {/* 🌟 アイコンも Tailwind で少し小さく制御 */}
+                                    <span className="text-sm opacity-70">{isExpanded ? '▼' : '▶'}</span>
+                                    {group.group_name}
                                 </div>
                                     
                                 {isExpanded && group.type === "auto_group" && (
