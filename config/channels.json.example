@@ -1,0 +1,7 @@
+[
+				{"id": "institutes001", "name": "🏢 gmail", "type": "auto_group", "rules": { "domains": ["@%gmail.com"], "keywords": [], "importance_min": 0, "ttl_days" : 0}},
+				{"id": "institutes002", "name": "🏢 outlook", "type": "auto_group", "rules": { "domains": ["@%outlook.com", "@hotmail.com"], "keywords": [], "importance_min": 0,"ttl_days" : 0 } },
+				{"id": "priority", "name": "🔥 最優先（手動設定）", "type": "auto_group", "rules": { "domains": [], "keywords": [], "importance_min": 4, "ttl_days" : 0 } },
+				{"id": "all-unread", "name": "📥 全ての未読", "type": "fixed", "rules": { "domains": [], "keywords": [], "importance_min": 0, "ttl_days" : 0 } },
+				{"id": "all-unread", "name": "📥 全てのメール", "type": "fixed", "rules": { "domains": [], "keywords": [], "importance_min": 0, "ttl_days" : 0 }}
+			]

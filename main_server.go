@@ -31,7 +31,7 @@ func (a *App) registerHandlers() {
 
 	// API 群
 	http.HandleFunc("/api/config", a.HandleGetConfig) // 👈 関数自体を外に出す
-	http.HandleFunc("/api/channels", a.HandleGetChannels)
+	http.HandleFunc("/api/workspace-list", a.HandleGetWorkspaceList)
 	http.HandleFunc("/api/reload-channels", a.HandleReloadChannels)
 	http.HandleFunc("/api/messages", a.HandleGetMessages)
 	http.HandleFunc("/api/auth-url", a.HandleGetAuthURL)
@@ -170,6 +170,16 @@ func (a *App) HandleGetConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(a.GetConfig())
 }
 
+func (a *App) HandleGetWorkspaceList(w http.ResponseWriter, r *http.Request) {
+	list, err := a.GetWorkspaceList()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(list)
+}
+
 // HandleGetChannels: チャンネルを返す窓口
 func (a *App) HandleGetChannels(w http.ResponseWriter, r *http.Request) {
 	// 1. DBからチャンネル名（文字列配列）を取得
@@ -186,36 +196,21 @@ func (a *App) HandleGetChannels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *App) HandleReloadChannels(w http.ResponseWriter, r *http.Request) {
-	// 1. JSONファイルからDBへ再読み込みを実行
-	err := a.LoadChannelsFromJson()
+	_, err := a.LoadChannelConfigs()
 	if err != nil {
-		http.Error(w, "リロード失敗: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "設定の読み込みに失敗しました: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// 2. 🌟 Reactが喜ぶ「オブジェクト形式」でDBから再取得
-	rows, err := a.db.Query("SELECT name FROM channels ORDER BY id ASC")
+	list, err := a.GetWorkspaceList()
 	if err != nil {
-		http.Error(w, "再取得失敗", http.StatusInternalServerError)
+		http.Error(w, "ワークスペース構築に失敗しました", http.StatusInternalServerError)
 		return
-	}
-	defer rows.Close()
-
-	// Reactに渡すための型をその場で定義
-	type ChannelResp struct {
-		Name string `json:"name"`
-	}
-	channels := []ChannelResp{} // 🌟 空配列 [] で初期化
-
-	for rows.Next() {
-		var name string
-		rows.Scan(&name)
-		channels = append(channels, ChannelResp{Name: name})
 	}
 
 	// 3. JSONで返却 (例: [{"name": "📥 受信トレイ"}, ...])
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(channels)
+	json.NewEncoder(w).Encode(list)
 
 	fmt.Printf("♻️ チャンネル設定をリロード完了: %d 件\n", len(channels))
 }

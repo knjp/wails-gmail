@@ -24,7 +24,8 @@ function App() {
     const [rawJson, setRawJson] = useState("");
     const [showSettingsEditor, setShowSettingsEditor] = useState(false);
     const [rawSettings, setRawSettings] = useState("");
-
+    const [workspaces, setWorkspaces] = useState([]); 
+    const [activeGroup, setActiveGroup] = useState(null); // 現在開いているグループ名
 
     const handleManualSummarize = async () => {
         setIsSummarizing(true);
@@ -129,17 +130,17 @@ function App() {
         return diffDays;
     };
 
-    const loadChannels = async (retryCount = 0) => {
+    const loadChannels = async () => {
         try {
-            const res = await api.getChannels();
-            if((!res || res.length === 0) && retryCount < 20){
-                console.log("Channels are not ready! Retry ...");
-                setTimeout(() => loadChannels(retryCount + 1), 5000);
-                return;
+            const list = await api.getWorkspaceList(); // 👈 api.js で作った新関数
+            setWorkspaces(list || []);
+            
+            // 初期選択：最初のグループの最初のチャンネルを自動選択（おもてなし）
+            if (list?.length > 0 && list[0].channels?.length > 0 && !activeTab) {
+                setActiveTab(list[0].channels[0]);
             }
-            if (res) setTabs(res.map(c => c.name));
-        } catch(err) {
-            console.error("Read Error:", err);
+        } catch (err) {
+            console.error("ワークスペース読み込み失敗:", err);
         }
     };
 
@@ -148,11 +149,14 @@ function App() {
             console.log("♻️ チャンネル設定を再読み込み中...");
             
             // 1. Go側のDBを JSON ファイルから更新させる
-            await api.loadChannelsFromJson(); 
+            await api.loadChannelConfigs(); 
             
             // 2. 🌟 重要：更新されたDBから最新のリストを「再度」取得して画面にセットする
-            const newTabs = await api.getChannels(); 
-            setTabs(newTabs || []);
+            //const newTabs = await api.getChannels(); 
+            //setTabs(newTabs || []);
+
+            await loadChannels()
+            console.log("heheheheh")
             // alert("チャンネル設定を更新しました！");
         } catch (err) {
             console.error("リロード失敗:", err);
@@ -198,6 +202,17 @@ function App() {
     };
 
     // 🌟 編集開始ボタンの処理
+    const handleOpenChannelsEditor = async () => {
+        try {
+            const text = await api.getChannelsRaw();
+            setRawJson(text);
+            setShowJsonEditor(true);
+        } catch (err) {
+            alert("設定の読み込みに失敗しました: " + err.message);
+        }
+    };
+    
+    // 🌟 編集開始ボタンの処理
     const handleOpenChannels = async () => {
         try {
             const text = await api.getChannelsRaw();
@@ -215,7 +230,7 @@ function App() {
             setShowJsonEditor(false);
             // 🌟 保存後にサイドバーを最新化する（以前作った関数）
             handleReloadChannels(); 
-            alert("✅ 設定を保存し、反映しました！");
+            alert("✅ 設定を保存し、反映しました！ New");
         } catch (err) {
             alert("❌ 保存失敗: " + err.message);
         }
@@ -256,8 +271,8 @@ function App() {
                 const cfg = await api.getConfig();
                 setMyAddress(cfg.my_address);
 
-                const channelList = await api.getChannels();
-                setTabs(channelList);
+                const list = await api.getWorkspaceList(); 
+                setWorkspaces(list || []); // 👈 以前作った setWorkspaces に流し込む
 
                 // 2. 🌟 認証が必要かチェックする 🌟
                 // Go側の getClient 等を呼び出して token.json があるか確認
@@ -268,7 +283,7 @@ function App() {
                     setShowAuthModal(true);
                 } else {
                     // すでに認証済みなら、そのままメール取得などを開始
-                    api.loadChannelsFromJson();
+                    // api.loadChannelsFromJson();
                 }
             } catch (err) {
                 console.error("初期化エラー:", err);
@@ -512,26 +527,57 @@ function App() {
                         />
                         <button onClick={handleAISearch}>検索</button>
                     </div>
-                    
-                    <div className="sidebar-header">CHANNELS</div>
+
+                    <div className="sidebar-header">
+                        <h3>🚀 Workspaces</h3>
+                    </div>
+
+                    <div className="channel-list">
+                        {workspaces?.map(group => {
+                            const isExpanded = activeGroup === group.group_name;
+
+                            return (
+                                <div key={group.group_name} className="sidebar-group">
+                                    <div 
+                                        className={`group-label clickable ${activeTab === group.group_name ? 'active' : ''}`}
+                                        onClick={() => {
+                                            setActiveGroup(isExpanded ? null : group.group_name);
+                                            setActiveTab(group.group_name);
+                                        }}
+                                    >
+                                    {isExpanded ? '▼' : '▶'}{group.group_name}
+                                </div>
+                                    
+                                {isExpanded && group.type === "auto_group" && (
+                                    <div className="group-items">
+                                        {group.channels?.map(channel => (
+                                            <div 
+                                            key={channel} 
+                                            className={`channel-item ${activeTab === channel ? 'active' : ''}`}
+                                            onClick={() => setActiveTab(channel)}
+                                        >
+                                            <span className="hash">#</span> {channel.split('<')[0]} {/* 名前だけ表示 */}
+                                        </div>
+                                    ))}
+                                    {isExpanded && group.type === "auto_group" && (!group.channels || group.channels.length === 0) && (
+                                        <div className="channel-item-empty">(該当者なし)</div>
+                                    )}
+                                </div>
+                                )}
+                            </div>
+                            );
+                        })}
+                    </div>
+
+                
                     <div className="sidebar-footer">
-                        <button className="settings-btn" onClick={handleOpenChannels}>
+                        <button className="settings-btn" onClick={handleOpenChannelsEditor}>
                             ⚙️ チャンネル設定
                         </button>
                         <button className="settings-btn" onClick={handleOpenSettings} style={{marginTop: '10px'}}>
                             🔧 アプリ基本設定
                         </button>
                     </div>
-
-                    {tabs.map(name => (
-                        <div 
-                            key={name} 
-                            className={`channel-item ${activeTab === name ? 'active' : ''}`}
-                            onClick={() => setActiveTab(name)}
-                        >
-                            # {name}
-                        </div>
-                    ))}
                 </div>
 
                 {/* 中央：メールリスト */}

@@ -89,11 +89,11 @@ body, html, #App {
 }
 
 .sidebar-header {
-  padding: 20px;
+  padding: 10px;
   font-size: 0.8rem;
   font-weight: bold;
-  color: #9b9da1;
-  background-color: #2d3136;
+  color: #2b9da1;
+  background-color: #fdf1f6;
 }
 
 .search-bar {
@@ -103,6 +103,44 @@ body, html, #App {
   transition: background 0.2s;
 }
 
+.group-label {
+    padding: 12px 16px 4px;
+    font-size: 0.75rem;
+    font-weight: bold;
+    color: #a4a48b;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.group-items {
+    margin-bottom: 16px;
+}
+
+.channel-item {
+    padding: 6px 24px; /* 少しインデント */
+    cursor: pointer;
+    font-size: 0.9rem;
+    color: #e3e1e5;
+}
+
+.channel-item.active {
+    background: #e2e8f0;
+    font-weight: 600;
+    color: #333135;
+}
+
+/*
+.channel-item:hover {
+  background-color: #2d3136;
+}
+  */
+
+.hash {
+    color: #94a3b8;
+    margin-right: 4px;
+}
+
+/*
 .channel-item {
   padding: 8px 20px;
   cursor: pointer;
@@ -110,14 +148,11 @@ body, html, #App {
   transition: background 0.2s;
 }
 
-.channel-item:hover {
-  background-color: #2d3136;
-}
-
 .channel-item.active {
-  background-color: #1164a3; /* Slack風の青 */
+  background-color: #1164a3; 
   color: white;
 }
+  */
 
 .reload-channels-btn {
     margin: 15px;

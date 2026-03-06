@@ -24,49 +24,30 @@ export const api = {
         return window?.go?.main?.App?.GetMessagesByChannel(channel);
     },
 
-    getChannels: async () => {
+    getWorkspaceList: async () => {
         let rawData;
-        try {
-            if (isWeb) {
-                // 🌐 Web版: GoサーバーからJSON(オブジェクト配列)を取得
-                const response = await fetch("/api/channels");
-                if (!response.ok) throw new Error("Fetch error");
-                rawData = await response.json(); 
-            } else {
-                // 🖥️ Desktop版: Wails経由で取得
-                // 🌟 直接 window.go を見に行くことで import エラーを回避
-                rawData = await window?.go?.main?.App?.GetChannels();
-            }
-
-            console.log("📥 受信データ(raw):", rawData);
-
-            // 🛡️ 現代的な型ガードと整形 🛡️
-            if (Array.isArray(rawData)) {
-                // もし [{name: "全受信"}, ...] というオブジェクト配列なら、文字列配列 ["全受信", ...] に変換
-                // そうでなければ(すでに文字列配列なら)そのまま使う
-                return rawData.map(item => {
-                    if (typeof item === 'object' && item !== null && item.name) {
-                        return item.name;
-                    }
-                    return item; // すでに文字列ならそのまま
-                });
-            }
-            return []; // 配列ですらない場合は空配列を返す
-        } catch (err) {
-            console.error("🚫 getChannels 失敗:", err);
-            return [];
+        if (!window.go) {
+            const response = await fetch("/api/workspace-list");
+            if (!response.ok) throw new Error("Workspace list fetch failed");
+            rawData = await response.json();
+        } else {
+            // 🖥️ Desktop版: Wails経由で新関数を呼ぶ
+            rawData = await window?.go?.main?.App?.GetWorkspaceList();
         }
+
+        console.log("📥 受信したワークスペース構造:", rawData);
+        
+        return Array.isArray(rawData) ? rawData : [];
     },
 
-    // 🌟 設定再読み込み
-    loadChannelsFromJson: async () => {
-        if (isWeb) {
-            // 🌐 Web版：POSTでリロードを要求し、最新の配列を受け取る
+    // リロード時も新しいリストを返すように
+    loadChannelConfigs: async () => {
+        if (!window.go) {
             const response = await fetch("/api/reload-channels", { method: 'POST' });
-            if (!response.ok) throw new Error("Reload failed");
-            return await response.json(); // 新しい ["受信トレイ", ...] が返る
+            return await response.json();
         }
-        return window?.go?.main?.App?.LoadChannelsFromJson();
+        console.log("hello hello")
+        return window?.go?.main?.App?.ReloadAndGetWorkspaces();
     },
 
     getMessageBody: async (id) => {
