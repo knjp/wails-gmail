@@ -1,38 +1,52 @@
-import {useState, useEffect, useRef} from 'react';
+import {useState, useEffect, useCallback, useMemo} from 'react';
 import './App.css';
 import { api } from './api';
+import MessageList from "./components/mailList/MessageList";
+import { getDaysLeft } from "./utils/dates";
+import EmailView from "./components/emailView/EmailView";
+import { useAuth } from "./hooks/useAuth";
+import { useWorkspaces } from "./hooks/useWorkspaces";
+import ChannelSidebar from "./components/sidebar/ChannelSidebar";
+import { useMessages } from "./hooks/useMessages";
+import { useMessageBody } from "./hooks/useMessageBody";
+import AuthModal from "./components/modals/AuthModal";
+import JsonEditorModal from "./components/modals/JsonEditorModal";
+import SettingsEditorModal from "./components/modals/SettingsEditorModal";
+import RelatedPane from "./components/related/RelatedPane";
+import ResizablePane from "./components/common/ResizablePane";
+
 
 function App() {
-    const [messages, setMessages] = useState([]);
-    const [tabs, setTabs] = useState([]);
     const [activeTab, setActiveTab] = useState("All");
     const [selectedMsg, setSelectedMsg] = useState(null);
-    const [fullBody, setFullBody] = useState("");
-    const [loadingBody, setLoadingBody] = useState(false);
-    const [loading, setLoading] = useState(false);
-    const [nextPageToken, setNextPageToken] = useState("");
     const [query, setQuery] = useState("");
     const [summary, setSummary] = useState("")
-    const [relatedMsgs, setRelatedMsgs] = useState([])
     const [isSummarizing, setIsSummarizing] = useState(false);
-    const requestRef = useRef(0); // 🌟 リクエストの通し番号を記録する
-    const [myAddress, setMyAddress] = useState("");
-    const [showAuthModal, setShowAuthModal] = useState(false);
-    const [authURL, setAuthURL] = useState("");
-    const [inputCode, setInputCode] = useState("");
+    const { messages, loading, loadMore, updateOne, removeOne, setMessages } = useMessages(activeTab);
+    const { fullBody, loadingBody, relatedMsgs, selectMessage} = useMessageBody();
+    const {
+        myAddress,
+        showAuthModal, setShowAuthModal,
+        authURL,
+        inputCode, setInputCode,
+        completeAuth,
+    } = useAuth();
     const [showJsonEditor, setShowJsonEditor] = useState(false);
     const [rawJson, setRawJson] = useState("");
     const [showSettingsEditor, setShowSettingsEditor] = useState(false);
     const [rawSettings, setRawSettings] = useState("");
-    const [workspaces, setWorkspaces] = useState([]); 
     const [activeGroup, setActiveGroup] = useState(null); // 現在開いているグループ名
+    const [showRelated, setShowRelated] = useState(false);
+    const toggleRelated = useCallback(() => setShowRelated(v => !v), []);
+    const [listWidth, setListWidth] = useState(350);
 
-    const handleManualSummarize = async () => {
+    const handleManualSummarize = useCallback(async () => {
+        if (!selectedMsg) return;
         setIsSummarizing(true);
         const sum = await api.summarizeEmail(selectedMsg.id);
         setSummary(sum);
         setIsSummarizing(false);
-    };
+    }, [selectedMsg]);
 
     const handleAISearch = async () => {
         console.log("AI Searching!! for:", query)
@@ -51,169 +65,50 @@ function App() {
         }
     };
 
-    const handleLoadMore = async () => {
-        setLoading(true);
-        // Goを呼び出して、次のトークンを受け取る
-        const token = await api.syncHistoricalMessages(nextPageToken);
-        setNextPageToken(token);
+    const handleSelect = useCallback (
+        async (msg) => {
+            setSelectedMsg(msg);
+            setSummary("");
+            await selectMessage(msg, { onMarkRead: (id) => updateOne(id, { is_read: 1})});
+        },
+        [selectMessage, updateOne]
+    );
 
-        // 表示を更新
-        const data = await api.getMessages(activeTab);
-        setMessages(data);
-        setLoading(false);
-    };
-
-    let currentAbortController = null;
-
-    const handleSelect = async (msg) => {
-        // if (loadingBody) return;
-        if (currentAbortController) {
-            currentAbortController.abort();
-        }
-        currentAbortController = new AbortController();
-        const { signal } = currentAbortController;
-    
-        setSelectedMsg(msg);
-        setFullBody("読み込み中...");
-        setLoadingBody(true);
-        setRelatedMsgs([]);
-        setSummary("");
-
-        await new Promise(resolve => setTimeout(resolve, 20));
-
-        try {
-            const body = await api.getMessageBody(msg.id, { signal } );
-            setFullBody(body);
-
-           setMessages(prev => prev.map(m =>
-                m.id === msg.id ? { ...m, is_read: 1 } : m
-            ))
-            api.markAsRead(msg.id);
-    
-        } catch (err) {
-            //console.error("本文取得エラー:", err);
-            //setFullBody("エラーが発生しました。");
-            if (err.name === 'AbortError') {
-                console.log("前のリクエストをキャンセルしました");
-                return; // キャンセル時は何もしない
-            }
-            setFullBody("エラーが発生しました。");
-        } finally {
-            setLoadingBody(false);
-        }
-
-        api.getAISearchResults(msg.snippet).then(related => {
-            if (related) {
-                setRelatedMsgs(related.filter(r => r.id !== msg.id));
-            }
-        }).catch(err => console.error("関連検索エラー:", err));
-    };
-
-    const handleDelete = async (msg) => {
+    const handleDelete = useCallback (async (msg) => {
         if (!window.confirm(`「${msg.subject}」をゴミ箱に移動しますか？`)) return;
         try {
             await api.trashMessage(msg.id);
-            // 成功したら、現在のリストからそのメールを消す（再読み込み不要の爆速UI）
-            setMessages(prev => prev.filter(m => m.id !== msg.id));
+            // 成功したら、現在のリストからそのメールを消す
+            removeOne(msg.id);
             setSelectedMsg(null);
         } catch (err) {
             alert("削除に失敗しました: " + err);
         }
-    };
+    }, []);
 
-    const getDaysLeft = (deadline) => {
-        if (!deadline || deadline === "なし") return null;
-        const today = new Date();
-        const target = new Date(deadline);
-        const diffTime = target - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays;
-    };
+    const authReady = !showAuthModal && !!myAddress;
+    const { workspaces, reloadFromJson } = useWorkspaces({
+        enabled: authReady,
+        onPickInitial: setActiveTab,
+    })
 
-    const loadChannels = async () => {
-        try {
-            const list = await api.getWorkspaceList(); // 👈 api.js で作った新関数
-            setWorkspaces(list || []);
-            
-            // 初期選択：最初のグループの最初のチャンネルを自動選択（おもてなし）
-            if (list?.length > 0 && list[0].channels?.length > 0 && !activeTab) {
-                setActiveTab(list[0].channels[0]);
-            }
-        } catch (err) {
-            console.error("ワークスペース読み込み失敗:", err);
-        }
-    };
-
-    const handleReloadChannels = async () => {
-        try {
-            console.log("♻️ チャンネル設定を再読み込み中...");
-            
-            // 1. Go側のDBを JSON ファイルから更新させる
-            await api.loadChannelConfigs(); 
-            
-            // 2. 🌟 重要：更新されたDBから最新のリストを「再度」取得して画面にセットする
-            //const newTabs = await api.getChannels(); 
-            //setTabs(newTabs || []);
-
-            await loadChannels()
-            console.log("heheheheh")
-            // alert("チャンネル設定を更新しました！");
-        } catch (err) {
-            console.error("リロード失敗:", err);
-        }
-    };
-
-    const handleManualImportance = async (level) => {
+    const handleManualImportance = useCallback(async (level) => {
         if (!selectedMsg) return;
-    
         try {
-            // 1. Go側の関数を呼び出してDBを更新
-            // ※ Go側で a.SetManualImportance(id, level) を定義済みである前提です
             await api.setManualImportance(selectedMsg.id, level);
-    
-            // 2. 現在表示中のメール情報を更新（これでボタンの「active」色が変わります）
             setSelectedMsg({
                 ...selectedMsg,
                 importance: level
             });
-    
-            // 3. 左側のリスト（messages）の中の該当メールも更新して、バッジの色などを即座に変える
-            setMessages(prev => prev.map(m => 
-                m.id === selectedMsg.id ? { ...m, importance: level } : m
-            ));
-    
+            updateOne(selectedMsg.id, { importance: level });
             console.log(`✅ 重要度を ${level} に変更しました`);
         } catch (err) {
             console.error("重要度の更新に失敗:", err);
         }
-    };
-
-    const handleCompleteAuth = async () => {
-        try {
-            // 1. api.js 経由で Go の HandleCompleteAuth を叩く
-            await api.completeAuth(inputCode);
-            
-            // 2. 成功したら画面をリロードして、a.srv が有効な状態で最初から始める
-            window.location.reload(); 
-        } catch (err) {
-            console.error("認証失敗:", err);
-            alert("認証に失敗しました。コードを再確認してください。");
-        }
-    };
+    }, [selectedMsg]);
 
     // 🌟 編集開始ボタンの処理
     const handleOpenChannelsEditor = async () => {
-        try {
-            const text = await api.getChannelsRaw();
-            setRawJson(text);
-            setShowJsonEditor(true);
-        } catch (err) {
-            alert("設定の読み込みに失敗しました: " + err.message);
-        }
-    };
-    
-    // 🌟 編集開始ボタンの処理
-    const handleOpenChannels = async () => {
         try {
             const text = await api.getChannelsRaw();
             setRawJson(text);
@@ -229,7 +124,7 @@ function App() {
             await api.saveChannelsRaw(rawJson);
             setShowJsonEditor(false);
             // 🌟 保存後にサイドバーを最新化する（以前作った関数）
-            handleReloadChannels(); 
+            await reloadFromJson(); 
             alert("✅ 設定を保存し、反映しました！ New");
         } catch (err) {
             alert("❌ 保存失敗: " + err.message);
@@ -256,457 +151,148 @@ function App() {
         }
     };
 
+    const handleToggleGroup = useCallback(
+      (next) => setActiveGroup(next),
+      [setActiveGroup]
+    );
+    const handleSelectTab = useCallback(
+      (tab) => setActiveTab(tab),
+      [setActiveTab]
+    );
+    const handleQueryChange = useCallback(
+      (text) => setQuery(text),
+      [setQuery]
+    );
+
+    const handleSearch = useCallback(() => handleAISearch(), [handleAISearch]);
+    const openChannelsEditor = useCallback(() => handleOpenChannelsEditor(), [handleOpenChannelsEditor]);
+    const openSettings = useCallback(() => handleOpenSettings(), [handleOpenSettings]);
+
     useEffect(() => {
         const handleMessage = (event) => {
-            if (event.data.type === 'open_url') {
+            if (event.data.type === 'open_url'){
                 console.log("外部ブラウザで開きます:", event.data.url);
-                api.openExternal(event.data.url); // 直接Wailsのランタイムを呼ぶ
+                api.openExternal(event.data.url);
             }
         };
         window.addEventListener('message', handleMessage);
-
-        const initApp = async () => {
-            try {
-                // 1. まず「設定（MyAddressなど）」を読み込む
-                const cfg = await api.getConfig();
-                setMyAddress(cfg.my_address);
-
-                const list = await api.getWorkspaceList(); 
-                setWorkspaces(list || []); // 👈 以前作った setWorkspaces に流し込む
-
-                // 2. 🌟 認証が必要かチェックする 🌟
-                // Go側の getClient 等を呼び出して token.json があるか確認
-                const authURL = await api.getAuthURL(); 
-                if (authURL) {
-                    // URLが返ってきたら「認証が必要」なのでモーダルを出す
-                    setAuthURL(authURL);
-                    setShowAuthModal(true);
-                } else {
-                    // すでに認証済みなら、そのままメール取得などを開始
-                    // api.loadChannelsFromJson();
-                }
-            } catch (err) {
-                console.error("初期化エラー:", err);
-                // エラー時も api 経由で取得を試みる
-                const url = await api.getAuthURL().catch(() => "");
-                if(url){
-                    setAuthURL(url);
-                    setShowAuthModal(true);
-                }
-            }
-        };
-        initApp();
-
         return () => window.removeEventListener('message', handleMessage);
     }, []);
 
-
-    useEffect(() => {
-        const currentRequestId = ++requestRef.current; // このリクエストに番号を振る
-    
-        const loadData = async () => {
-            // 1. まず現在のDBからデータを出す（爆速表示）
-            const data = await api.getMessages(activeTab);
-            
-            // 🌟 チェック：もし別のタブが既にクリックされていたら、この結果は捨てる
-            if (currentRequestId !== requestRef.current) return;
-            setMessages(data || []);
-    
-            // 2. バックグラウンドで同期を実行
-            try {
-                await api.syncMessages();
-                
-                // 🌟 チェック：同期が終わった時、まだ同じタブにいるか？
-                if (currentRequestId !== requestRef.current) return;
-                
-                const freshData = await api.getMessages(activeTab);
-                setMessages(freshData || []);
-            } catch (err) {
-                console.error("同期エラー:", err);
-            }
-        };
-    
-        loadData();
-    }, [activeTab]);
-
-    useEffect(() => {
-        // 🌟 モーダルが閉じられ（false）、かつ認証が完了しているはずの時
-        if (!showAuthModal && myAddress) {
-            console.log("🔓 認証完了！アプリを始動します...");
-            const startApp = async () => {
-                await loadChannels(); // チャンネル一覧を取得
-            }
-            startApp();
-        }
-    }, [showAuthModal]); // 🌟 showAuthModal の変化を監視
-
-    /*
-    useEffect(() => {
-        // 🌟 fullBody が更新されたら、自動で iframe に「描画せよ！」と命じる
-        if (fullBody && fullBody !== "読み込み中..." && fullBody !== "エラーが発生しました。") {
-            const iframe = document.getElementById('message-iframe');
-            if (iframe && iframe.contentWindow) {
-                console.log("🪄 iframe へ本文を転送します");
-                // iframe 内のスクリプト（以前作ったもの）へ postMessage を投げる
-                iframe.contentWindow.postMessage({ type: 'render', html: fullBody }, '*');
-            }
-        }
-    }, [fullBody]); // 🌟 fullBody の変化を監視
-    */
-
-    //
-    // メッセージリストを日付順に整理
-    //
-    const renderMessageList = () => {
-        let lastGroup = ""; // 直前のグループを記憶
-
-        const now = new Date();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-
-        return messages.map((m) => {
-            const msgDate = new Date(m.timestamp);
-            const msgTime = msgDate.getTime();
-            // console.log(`[DEBUG] 件名: ${m.subject} / 未読フラグ: ${m.is_read} / 型: ${typeof m.is_read}`);
-
-            let currentGroup = "";
-            if (msgTime >= todayStart) {
-                currentGroup = "今日";
-            } else if (msgTime >= todayStart - (7 * 24 * 60 * 60 * 1000)) {
-                currentGroup = "1週間以内";
-            } else if (msgTime >= todayStart - (30 * 24 * 60 * 60 * 1000)) {
-                currentGroup = "1ヶ月以内";
-            } else {
-                currentGroup = "それ以前";
-            }
-    
-            const displayDate = msgDate.toLocaleString('ja-JP');
-            // --- グループが変わった時だけセパレーターを出す ---
-            const showSeparator = currentGroup !== lastGroup;
-            lastGroup = currentGroup;
-
-            const isDirect = m.recipient && m.recipient.includes(myAddress);
-            const isML = m.recipient && !isDirect; // 自分宛でなければML（またはCC）とみなす
-
-            return (
-                <div key={m.id}>
-                    {showSeparator && (
-                        <div className="list-separator">{currentGroup}</div>
-                    )}
-                    <div
-                        className={`mail-item
-                            ${selectedMsg?.id === m.id ? 'selected' : ''}
-                            ${m.is_read === 0 ? 'unread-item' : ''}
-                            importance-${m.importance}`}
-                        onClick={() => handleSelect(m)}
-                    >
-                        <div className="subject">
-                            {/* 🌟 宛先バッジを追加 🌟 */}
-                            {isDirect ? (
-                                <span className="recipient-badge direct">TO ME</span>
-                            ) : isML ? (
-                                <span className="recipient-badge ml">ML</span>
-                            ) : null}
-
-                            {m.subject}
-                            {m.importance >= 4 && (
-                                <span className={`importance-badge level-${m.importance}`}>
-                                    {m.importance === 5 ? "🔥 CRITICAL" : "⚡ IMPORTANT"}
-                                </span>
-                            )}
-                        </div>
-                        <div className='list-snippet'> {m.snippet} </div>
-                        <div className="from">{m.from}</div>
-                        <div className="mail-date">{displayDate}</div>
-                    </div>
-                </div>
-            );
-        });
-    };
-
-    const daysLeft = selectedMsg ? getDaysLeft(selectedMsg.deadline) : null;
+    const daysLeft = useMemo(
+        () => (selectedMsg ? getDaysLeft(selectedMsg.deadline) : null),
+            [selectedMsg]
+        );
     const isDirect = selectedMsg?.recipient?.includes(myAddress);
 
     return (
         <div className="container">
             {showAuthModal && (
-                <div className="auth-overlay">
-                    <div className="auth-card">
-                         {authURL === "MISSING_CREDENTIALS" ? (
-                            <div className="error-state">
-                                <h2>📁 credentials.json が必要です</h2>
-                                <p>Google Cloud Console で「デスクトップアプリ」用の認証情報を作成し、JSONをダウンロードしてください。</p>
-                                <div className="action-buttons">
-                                <button 
-                                    className="console-link-btn" 
-                                    onClick={() => api.openExternal("https://console.cloud.google.com")}
-                                >
-                                🌐 Google Cloud Console を開く
-                                </button>
-                                <button className="retry-btn" onClick={() => window.location.reload()}>
-                                    🔄 ファイルを置いたので再読み込み
-                                </button>
-                                </div>
-                                <p className="path-hint">保存先: <code>config/credentials.json</code></p>
-                            </div>
-                        ) : (
-                            <div className="auth-steps">
-                                <h2>🔑 Google ログイン</h2>
-                                <p>アプリを使用するために認証が必要です。</p>
-                                <button onClick={() => api.openExternal(authURL)}>ブラウザを開いて承認</button>
-                                <input 
-                                    placeholder="表示されたコードを入力" 
-                                    value={inputCode} 
-                                    onChange={e => setInputCode(e.target.value)} 
-                                />
-                                <button onClick={async () => {
-                                    // await api.completeAuth(inputCode);
-                                    handleCompleteAuth(inputCode)
-                                    setShowAuthModal(false);
-                                    window.location.reload(); // 🌟 再起動してメール取得開始
-                                }}>認証を完了する</button>
-                            </div>
-                        )}
-                    </div>
-                </div>
+                <AuthModal
+                    authURL={authURL}
+                    inputCode={inputCode}
+                    onChangeCode={setInputCode}
+                    onOpenExternal={(url) => api.openExternal(url)}
+                    onComplete={completeAuth}
+                    onClose={() => setShowAuthModal(false)}
+                />
             )}
             {showJsonEditor && (
-                <div className="auth-overlay">
-                    <div className="auth-card" style={{ width: '80%', height: '80%', maxWidth: '800px' }}>
-                        <h3>⚙️ チャンネル設定 (JSON 編集)</h3>
-                        <p style={{fontSize: '0.8rem', color: '#666'}}>JSON形式で入力してください。保存時にバリデーションが行われます。</p>
-                        <textarea
-                            style={{
-                                width: '100%', height: '70%', 
-                                fontFamily: 'monospace', fontSize: '14px',
-                                padding: '10px', border: '1px solid #ccc'
-                            }}
-                            value={rawJson}
-                            onChange={(e) => setRawJson(e.target.value)}
-                        />
-                        <div style={{ marginTop: '20px', display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
-                            <button onClick={() => setShowJsonEditor(false)}>キャンセル</button>
-                            <button onClick={handleSaveChannels} className="summary-btn">💾 保存して反映</button>
-                        </div>
-                    </div>
-                </div>
+                <JsonEditorModal
+                    title="⚙️ チャンネル設定 (JSON 編集)"
+                    value={rawJson}
+                    onChange={setRawJson}
+                    onSave={async () => {
+                        await handleSaveChannels();
+                        await reloadFromJson();
+                    }}
+                    onClose={ () => setShowJsonEditor(false)}
+                />
             )}
             {showSettingsEditor && (
-                <div className="auth-overlay">
-                    <div className="auth-card" style={{ width: '80%', height: '80%' }}>
-                        <h3>🔧 アプリ基本設定 (settings.json)</h3>
-                        <textarea
-                            style={{
-                                width: '100%', height: '70%', 
-                                fontFamily: 'monospace', fontSize: '14px',
-                                padding: '10px', border: '1px solid #ccc'
-                            }}
-                            className="json-textarea"
-                            value={rawSettings}
-                            onChange={(e) => setRawSettings(e.target.value)}
-                        />
-                        <div className="modal-buttons">
-                            <button onClick={() => setShowSettingsEditor(false)}>キャンセル</button>
-                            <button onClick={handleSaveSettings} className="save-btn">💾 保存して反映</button>
-                        </div>
-                    </div>
-                </div>
+                <SettingsEditorModal
+                    title="🔧 アプリ基本設定 (settings.json)"
+                    value={rawSettings}
+                    onChange={setRawSettings}
+                    onSave={handleSaveSettings}
+                    onClose={() => setShowSettingsEditor(false)}
+                />
             )}
+
             <div className="main-layout">
+                <ChannelSidebar
+                    workspaces={workspaces}
+                    activeGroup={activeGroup}
+                    activeTab={activeTab}
+                    onToggleGroup={handleToggleGroup}
+                    onSelectTab={handleSelectTab}
+                    query={query}
+                    onQueryChange={handleQueryChange}
+                    onSearch={handleSearch}
+                    onOpenChannelsEditor={openChannelsEditor}
+                    onOpenSettings={openSettings}
+                />
 
-                {/* 左端：チャンネルリスト（旧タブバー） */}
-                <div className="channel-sidebar">
-
-                    {/* 検索エリア */}
-                    <div className="search-bar">
-                        <input 
-                            type="text" 
-                            placeholder="AIであいまい検索..." 
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleAISearch(e.target.value)}
-                        />
-                        <button onClick={handleAISearch}>検索</button>
-                    </div>
-
-                    <div className="sidebar-header">
-                        <h3>🚀 Workspaces</h3>
-                    </div>
-
-                    <div className="channel-list p-4 flex flex-col gap-4">
-                        {workspaces?.map(group => {
-                            const isExpanded = activeGroup === group.group_name;
-
-                            return (
-                                <div key={group.group_name} className="sidebar-group flex flex-col gap-1">
-                                <div 
-                                    // 🌟 text-xl (大きく), font-bold (太字), p-2 (余白), rounded (角丸)
-                                    // hover:bg-slate-100 (マウスを乗せた時に薄いグレー)
-                                    className={`cursor-pointer text-xl font-bold p-2 rounded transition-all duration-200 flex items-center gap-2 ${
-                                        activeTab === group.group_name 
-                                            ? 'bg-blue-600 text-white shadow-lg scale-[1.02]' // 🌟 選択中：鮮やかな青背景に白文字＋影
-                                            : 'hover:bg-slate-200 text-slate-700' // 🌟 未選択：ホバーで薄いグレー
-                                    }`}
-                                    onClick={() => {
-                                        setActiveGroup(isExpanded ? null : group.group_name);
-                                        setActiveTab(group.group_name);
-                                    }}
-                                >
-                                    {/* 🌟 アイコンも Tailwind で少し小さく制御 */}
-                                    <span className="text-sm opacity-70">{isExpanded ? '▼' : '▶'}</span>
-                                    {group.group_name}
-                                </div>
-                                    
-                                {isExpanded && group.type === "auto_group" && (
-                                    <div className="group-items">
-                                        {group.channels?.map(channel => (
-                                            <div 
-                                            key={channel} 
-                                            className={`channel-item ${activeTab === channel ? 'active' : ''}`}
-                                            onClick={() => setActiveTab(channel)}
-                                        >
-                                            <span className="hash">#</span> {channel.split('<')[0]} {/* 名前だけ表示 */}
-                                        </div>
-                                    ))}
-                                    {isExpanded && group.type === "auto_group" && (!group.channels || group.channels.length === 0) && (
-                                        <div className="channel-item-empty">(該当者なし)</div>
-                                    )}
-                                </div>
-                                )}
-                            </div>
-                            );
-                        })}
-                    </div>
-
-                
-                    <div className="sidebar-footer">
-                        <button className="settings-btn" onClick={handleOpenChannelsEditor}>
-                            ⚙️ チャンネル設定
-                        </button>
-                        <button className="settings-btn" onClick={handleOpenSettings} style={{marginTop: '10px'}}>
-                            🔧 アプリ基本設定
-                        </button>
-                    </div>
-                </div>
-
-                {/* 中央：メールリスト */}
-                <div className="mail-list-pane">
+                <div
+                    className="mail-list-pane relative"
+                    style={{ width: `${listWidth}px` }}
+                >
                     <div className="pane-header">{activeTab}</div>
                     <div className="list-container">
+                        {/* 中央：メールリスト */}
                         {messages.length === 0 && <div className="info">メールがありません</div>}
-
-                        { renderMessageList() }
-
+                        <MessageList
+                            messages={messages}
+                            myAddress={myAddress}
+                            selectedId={selectedMsg?.id}
+                            onSelect={handleSelect}
+                        />
                         {messages.length>0 && (
-                            <button onClick={handleLoadMore} disabled={loading} className="load-more">
+                            <button onClick={loadMore} disabled={loading} className="load-more">
                                 {loading ? "読み込み中・・・" : "さらに500件読み込む"}
                             </button>
                         )}
                     </div>
-                </div>
 
+                    <input
+                        type="range"
+                        min={240}
+                        max={600}
+                        step={2}
+                        value={listWidth}
+                        onInput={(e) => setListWidth(Number(e.currentTarget.value))}
+                        className="absolute top-0 right-0 h-full w-[10px] cursor-col-resize opacity-0"
+                        style={{
+                            writingMode: 'bt-lr',
+                            WebkitAppearance: 'slider-horizontal'
+                        }}
+                        aria-label="メール一覧ペイン幅"
+                    />
+                    <div
+                        className="absolute top-0 right-0 h-full w-[8px] bg-slate-300 hover:bg-slate-400 transition-colors pointer-events-none"
+                        aria-hidden
+                    />
+                </div>
                 <div className="main-content">
-                    {selectedMsg ? (
-                        <div className={`email-view 
-                            ${selectedMsg.is_read === 0 ? 'unread-view' : ''} 
-                            ${!isDirect ? 'reference-view' : ''}`}>
-
-                            {/* 1. ヘッダー：件名と基本情報 */}
-                            <div className="email-header-top">
-                                <div className="header-main">
-                                    {!isDirect && <span className="ref-badge">参考情報</span>}
-                                    <h2 className="detail-subject">{selectedMsg.subject}</h2>
-                                    <div className="detail-meta">
-                                        <div className="meta-row-meta">
-                                            <span className="meta-label">From:</span>
-                                            <span className="detail-from">{selectedMsg.from}</span>
-                                        </div>
-                                        <div className="meta-row">
-                                            <span className="meta-label">To:</span>
-                                            <span className="detail-to">{selectedMsg.recipient || "（宛先なし）"}</span>
-                                        </div>
-                                        <span className="detail-date">
-                                            📅 {new Date(selectedMsg.timestamp).toLocaleString('ja-JP')}
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div className="header-actions-container">
-                                    {/* 上段：メインアクション */}
-                                    <div className="main-actions">
-                                        <button onClick={handleManualSummarize} disabled={isSummarizing} className="summary-btn">
-                                            {isSummarizing ? "⌛ 要約中..." : "✨ AI要約"}
-                                        </button>
-                                        <button onClick={() => handleDelete(selectedMsg)} className="delete-btn">
-                                            🗑️
-                                        </button>
-                                    </div>
-                                
-                                    {/* 下段：重要度ピッカー */}
-                                    <div className="importance-picker-row">
-                                        <span className="picker-label">重要度</span>
-                                        <div className="imp-button-group">
-                                            {[1, 2, 3, 4, 5].map(num => (
-                                                <button 
-                                                    key={num}
-                                                    className={`imp-num-btn ${selectedMsg.importance === num ? 'active' : ''}`}
-                                                    onClick={() => handleManualImportance(num)}
-                                                >
-                                                    {num}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* 3. AI インフォメーション（期限と要約） */}
-                            {(daysLeft !== null || summary) && (
-                                <div className="ai-info-section">
-                                    {daysLeft !== null && (
-                                        <div className={`deadline-banner ${daysLeft < 0 ? 'overdue' : daysLeft <= 3 ? 'urgent' : ''}`}>
-                                            <span className="icon">📅</span>
-                                            <span className="text">
-                                                {daysLeft < 0 ? `期限切れ (${Math.abs(daysLeft)}日経過)` : 
-                                                 daysLeft === 0 ? "本日締切！" : 
-                                                 `${selectedMsg.deadline} まであと ${daysLeft} 日`}
-                                            </span>
-                                        </div>
-                                    )}
-                                    {summary && <div className="ai-summary-content">{summary}</div>}
-                                </div>
-                            )}
-                
-                            {/* 4. 本文 */}
-                            <div className="email-body-container">
-                                <iframe
-                                    key={`${selectedMsg.id}` || 'empty'}
-                                    title="body"
-                                    className="email-body-frame"
-                                    srcDoc={fullBody} 
-                                    sandbox="allow-popups allow-popups-to-escape-sandbox allow-scripts" // セキュリティとポップアップ許可
-                                />
-                            </div>
-                        </div>
-                    ) : <div className="empty-state">メールを選択してください</div>}
+                    <EmailView
+                        selectedMsg={selectedMsg}
+                        isDirect={isDirect}
+                        summary={summary}
+                        isSummarizing={isSummarizing}
+                        onSummarize={handleManualSummarize}
+                        onDelete={handleDelete}
+                        onChangeImportance={handleManualImportance}
+                        daysLeft={daysLeft}
+                        fullBody={fullBody}
+                        loadingBody={loadingBody}
+                        onToggleRelated={toggleRelated}
+                        showRelated={showRelated}
+                    />
                 </div>
 
-                {/* 🌟 4つ目のペイン：関連コンテキスト 🌟 */}
-                <div className="related-pane">
-                    <div className="pane-header">🔗 関連・過去の経緯</div>
-                    <div className="related-list-container">
-                        {relatedMsgs.length === 0 && <div className="info">関連なし</div>}
-                        {relatedMsgs.map(rm => (
-                            <div key={rm.id} className="mail-item related-item" onClick={() => handleSelect(rm)}>
-                                <div className="subject-small">{rm.subject}</div>
-                                <div className='list-snippet'> {rm.snippet} </div>
-                                <div className="from">{rm.from}</div>
-                                <div className="mail-date">{/*displayDate*/}Time </div>
-                                <div className="date-small">{new Date(rm.timestamp).toLocaleDateString()}</div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
+                {showRelated && (
+                    <RelatedPane relatedMsgs={relatedMsgs} onSelect={handleSelect} />
+                )}
             </div>
         </div>
     );
