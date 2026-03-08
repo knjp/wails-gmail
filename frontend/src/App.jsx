@@ -1,4 +1,4 @@
-import {useState, useEffect, useCallback, useMemo} from 'react';
+import {useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect} from 'react';
 import './App.css';
 import { api } from './api';
 import MessageList from "./components/mailList/MessageList";
@@ -14,6 +14,7 @@ import JsonEditorModal from "./components/modals/JsonEditorModal";
 import SettingsEditorModal from "./components/modals/SettingsEditorModal";
 import RelatedPane from "./components/related/RelatedPane";
 import ResizablePane from "./components/common/ResizablePane";
+import ChannelOverlayPane from "./components/sidebar/ChannelOverlayPane";
 
 
 function App() {
@@ -39,6 +40,10 @@ function App() {
     const [showRelated, setShowRelated] = useState(false);
     const toggleRelated = useCallback(() => setShowRelated(v => !v), []);
     const [listWidth, setListWidth] = useState(350);
+    const [useOverlay, setUseOverlay] = useState(true);
+    const [overlayWorkspace, setOverlayWorkspace] = useState(null);
+    const sidebarRef = useRef(null);
+    const [sidebarRect, setSidebarRect] = useState({ left:0, top: 0 , height: 0});
 
     const handleManualSummarize = useCallback(async () => {
         if (!selectedMsg) return;
@@ -168,6 +173,30 @@ function App() {
     const openChannelsEditor = useCallback(() => handleOpenChannelsEditor(), [handleOpenChannelsEditor]);
     const openSettings = useCallback(() => handleOpenSettings(), [handleOpenSettings]);
 
+    useLayoutEffect(() => {
+        if (!sidebarRef.current) return;
+        const el = sidebarRef.current;
+        const measure = () => {
+          const r = el.getBoundingClientRect();
+          setSidebarRect({ left: r.left, top: r.top, width: r.width, height: r.height });
+        };
+        measure();
+
+        const ro = new ResizeObserver(measure);
+        ro.observe(el);
+
+        window.addEventListener("resize", measure);
+        window.addEventListener("scroll", measure, true); // 内部スクロールにも強めに
+
+        return () => {
+          ro.disconnect();
+          window.removeEventListener("resize", measure);
+          window.removeEventListener("scroll", measure, true);
+        };
+    }, []);
+
+    const handleOpenWorkspace = useCallback((group) => setOverlayWorkspace(group), []);
+
     useEffect(() => {
         const handleMessage = (event) => {
             if (event.data.type === 'open_url'){
@@ -220,10 +249,12 @@ function App() {
             )}
 
             <div className="main-layout">
+                <div ref={sidebarRef}>
                 <ChannelSidebar
                     workspaces={workspaces}
                     activeGroup={activeGroup}
                     activeTab={activeTab}
+                    onOpenWorkspace={useOverlay? setOverlayWorkspace: undefined}
                     onToggleGroup={handleToggleGroup}
                     onSelectTab={handleSelectTab}
                     query={query}
@@ -232,10 +263,31 @@ function App() {
                     onOpenChannelsEditor={openChannelsEditor}
                     onOpenSettings={openSettings}
                 />
+                </div>
+                {overlayWorkspace && (
+                    <ChannelOverlayPane
+                        group={overlayWorkspace}
+                        anchorLeft={sidebarRect.left}
+                        anchorTop={sidebarRect.top}
+                        anchorWidth={sidebarRect.width}
+                        onSelectChannel={(ch) => setActiveTab(ch)}
+                        onClose={() => setOverlayWorkspace(null)}
+                        autoCloseOnSelect={false}
+                        modal={false}
+                        panelWidth={240}
+                        panelClassName="w-[220px] sm:w-[260px]"
+                    />
+                )}
 
-                <div
-                    className="mail-list-pane relative"
-                    style={{ width: `${listWidth}px` }}
+                <ResizablePane
+                    width={listWidth}
+                    min={240}
+                    max={600}
+                    onResize={setListWidth}
+                    onResizeEnd={(w) => console.log("final width:", w)}
+                    persistKey="ui:mailListPaneWidth"
+                    className="mail-list-pane"
+                    handleClassName="absolute top-0 right-0 h-full w-[10px] bg-slate-300/80 hover:bg-slate-400 cursor-col-resize transition-colors select-none"
                 >
                     <div className="pane-header">{activeTab}</div>
                     <div className="list-container">
@@ -253,26 +305,8 @@ function App() {
                             </button>
                         )}
                     </div>
+                </ResizablePane>
 
-                    <input
-                        type="range"
-                        min={240}
-                        max={600}
-                        step={2}
-                        value={listWidth}
-                        onInput={(e) => setListWidth(Number(e.currentTarget.value))}
-                        className="absolute top-0 right-0 h-full w-[10px] cursor-col-resize opacity-0"
-                        style={{
-                            writingMode: 'bt-lr',
-                            WebkitAppearance: 'slider-horizontal'
-                        }}
-                        aria-label="メール一覧ペイン幅"
-                    />
-                    <div
-                        className="absolute top-0 right-0 h-full w-[8px] bg-slate-300 hover:bg-slate-400 transition-colors pointer-events-none"
-                        aria-hidden
-                    />
-                </div>
                 <div className="main-content">
                     <EmailView
                         selectedMsg={selectedMsg}
