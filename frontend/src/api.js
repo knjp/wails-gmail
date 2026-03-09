@@ -104,6 +104,25 @@ export const api = {
         return window?.go?.main?.App?.GetAISearchResults(query);
     },
 
+    getThreadHistory: async (msgId, threadId, refs) => {
+        // refs はスペース区切りなので、念のため URL エンコード
+        const params = new URLSearchParams({
+            message_id: msgId || "",
+            thread_id: threadId || "",
+            references: refs || ""
+        });
+
+        if (!window.go) {
+            // 🌐 Web版 (Docker)
+            const response = await fetch(`/api/thread-history?${params.toString()}`);
+            if (!response.ok) throw new Error("Thread history fetch failed");
+            return await response.json();
+        } else {
+            // 🖥️ Desktop版 (Wails)
+            return await window?.go?.main?.App?.GetThreadHistory(msgId, threadId, refs);
+        }
+    },
+
     // 🌟 AI要約
     summarizeEmail: async (id) => {
         if (isWeb) return fetchApi("/api/summarize", { id });

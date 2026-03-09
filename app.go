@@ -21,13 +21,17 @@ import (
 )
 
 type MessageSummary struct {
-	ID         string `json:"id"`
-	From       string `json:"from"`
-	Recipient  string `json:"recipient"`
-	Subject    string `json:"subject"`
-	Snippet    string `json:"snippet"`
-	IsRead     int64  `json:"is_read"`
-	Importance int64  `json:"importance"`
+	ID               string `json:"id"`
+	ThreadID         string `json:"thread_id"`
+	MessageID        string `json:"message_id"`
+	ReferencesIDs    string `json:"references_ids"`
+	From             string `json:"from"`
+	Recipient        string `json:"recipient"`
+	Subject          string `json:"subject"`
+	Snippet          string `json:"snippet"`
+	IsRead           int64  `json:"is_read"`
+	Importance       int64  `json:"importance"`
+	ManualImportance int64  `json:"manual_importance"`
 	//Date       string `json:"date"`
 	Timestamp int64  `json:"timestamp"`
 	Deadline  string `json:"deadline"`
@@ -148,11 +152,12 @@ func (a *App) initDB() error {
 	// テーブル作成
 	a.db.Exec(`CREATE TABLE IF NOT EXISTS messages (
 		id TEXT PRIMARY KEY,
+		thread_id TEXT,
+		message_id TEXT,
+		references_ids TEXT,
 		sender TEXT,
 		recipient TEXT,
 		all_involved_adresses TEXT,
-		message_id TEXT,
-		references_ids TEXT,
 		subject TEXT,
 		snippet TEXT,
 		timestamp INTEGER,
@@ -168,6 +173,8 @@ func (a *App) initDB() error {
 	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);")
 	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_deadline ON messages(deadline);")
 	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_is_read ON messages(is_read);")
+	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_thread_id ON messages(thread_id);")
+	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_message_id ON messages(message_id);")
 	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_importance ON messages(importance);")
 	fmt.Println("✅ インデックスの作成/確認が完了しました")
 

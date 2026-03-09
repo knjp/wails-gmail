@@ -24,7 +24,7 @@ function App() {
     const [summary, setSummary] = useState("")
     const [isSummarizing, setIsSummarizing] = useState(false);
     const { messages, loading, loadMore, updateOne, removeOne, setMessages } = useMessages(activeTab);
-    const { fullBody, loadingBody, relatedMsgs, selectMessage} = useMessageBody();
+    const { fullBody, loadingBody, relatedMsgs, threadMsgs, selectMessage} = useMessageBody();
     const {
         myAddress,
         showAuthModal, setShowAuthModal,
@@ -337,7 +337,7 @@ function App() {
                 </div>
 
                 {showRelated && (
-                    <RelatedPane relatedMsgs={relatedMsgs} onSelect={handleSelect} />
+                    <RelatedPane threadMsgs={threadMsgs} aiMsgs={relatedMsgs} onSelect={handleSelect} />
                 )}
             </div>
         </div>

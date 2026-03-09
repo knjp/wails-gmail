@@ -23,6 +23,7 @@ export default function EmailHeader({ selectedMsg, isDirect, onToggleRelated, sh
         <span className="detail-date">
           📅 {new Date(selectedMsg.timestamp).toLocaleString("ja-JP")}
         </span>
+
         <button
           className="toggle-related-btn"
           onClick={onToggleRelated}

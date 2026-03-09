@@ -62,7 +62,7 @@ func (a *App) GetMessagesByChannel(channelName string) ([]MessageSummary, error)
 		}
 	}
 
-	query := fmt.Sprintf("SELECT id, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC", condition)
+	query := fmt.Sprintf("SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC", condition)
 	rows, err := a.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -73,7 +73,7 @@ func (a *App) GetMessagesByChannel(channelName string) ([]MessageSummary, error)
 	for rows.Next() {
 		var m MessageSummary
 		var deadlineNull sql.NullString
-		err := rows.Scan(&m.ID, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
+		err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
 		if err != nil {
 			fmt.Println("Scan Error: ", err)
 			continue
@@ -349,7 +349,9 @@ func (a *App) SyncMessages() error {
 		}
 
 		var sender, subject, to, cc, msgID string
-		var involved, refIDs []string
+		involvedMap := make(map[string]bool)
+		refIDMap := make(map[string]bool)
+
 		for _, h := range msg.Payload.Headers {
 			if strings.EqualFold(h.Name, "From") {
 				sender = h.Value
@@ -364,23 +366,36 @@ func (a *App) SyncMessages() error {
 				cc = h.Value
 			}
 			if strings.EqualFold(h.Name, "From") || strings.EqualFold(h.Name, "To") || strings.EqualFold(h.Name, "Cc") {
-				involved = append(involved, h.Value)
+				for _, addr := range strings.Fields(h.Value) {
+					involvedMap[addr] = true
+				}
 			}
 			if strings.EqualFold(h.Name, "Message-ID") {
 				msgID = h.Value
 			}
-			if strings.EqualFold(h.Name, "Message-ID") || strings.EqualFold(h.Name, "References") || strings.EqualFold(h.Name, "In-Reply-To") {
-				refIDs = append(refIDs, h.Value)
+			if strings.EqualFold(h.Name, "References") || strings.EqualFold(h.Name, "In-Reply-To") {
+				for _, rid := range strings.Fields(h.Value) {
+					refIDMap[rid] = true
+				}
 			}
 
 		}
 		combinedRecipient := to + " " + cc
-		allInvolved := strings.Join(involved, " ")
-		references := strings.Join(refIDs, " ")
+
+		delete(refIDMap, msgID)
+		var involvedList, refList []string
+		for k := range involvedMap {
+			involvedList = append(involvedList, k)
+		}
+		for k := range refIDMap {
+			refList = append(refList, k)
+		}
+		allInvolved := strings.Join(involvedList, " ")
+		references := strings.Join(refList, " ")
 
 		// 3. 🌟 INSERT OR IGNORE を活用
-		_, err = a.db.Exec(`INSERT OR IGNORE INTO messages (id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			msg.Id, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
+		_, err = a.db.Exec(`INSERT OR IGNORE INTO messages (id, thread_id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			msg.Id, msg.ThreadId, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
 		if err != nil {
 			fmt.Printf("SyncMessages: error %s\n", err)
 			continue
@@ -445,7 +460,8 @@ func (a *App) SyncHistoricalMessages(pageToken string) (string, error) {
 
 		// ヘッダー解析（差出人・件名）
 		var sender, subject, to, cc, msgID string
-		var involved, refIDs []string
+		involvedMap := make(map[string]bool)
+		refIDMap := make(map[string]bool)
 		for _, h := range msg.Payload.Headers {
 			if strings.EqualFold(h.Name, "From") {
 				sender = h.Value
@@ -459,25 +475,41 @@ func (a *App) SyncHistoricalMessages(pageToken string) (string, error) {
 			if strings.EqualFold(h.Name, "Cc") {
 				cc = h.Value
 			}
-			if strings.EqualFold(h.Name, "From") || strings.EqualFold(h.Name, "To") || strings.EqualFold(h.Name, "Cc") {
-				involved = append(involved, h.Value)
-			}
 			if strings.EqualFold(h.Name, "Message-ID") {
 				msgID = h.Value
 			}
-			if strings.EqualFold(h.Name, "Message-ID") || strings.EqualFold(h.Name, "References") || strings.EqualFold(h.Name, "In-Reply-To") {
-				refIDs = append(refIDs, h.Value)
+			if strings.EqualFold(h.Name, "From") || strings.EqualFold(h.Name, "To") || strings.EqualFold(h.Name, "Cc") {
+				for _, addr := range strings.Fields(h.Value) {
+					involvedMap[addr] = true
+				}
+			}
+
+			if strings.EqualFold(h.Name, "References") || strings.EqualFold(h.Name, "In-Reply-To") {
+				for _, rid := range strings.Fields(h.Value) {
+					refIDMap[rid] = true
+				}
 			}
 		}
 		combinedRecipient := to + " " + cc
-		allInvolved := strings.Join(involved, " ")
-		references := strings.Join(refIDs, " ")
+		delete(refIDMap, msgID)
+
+		// 🌟 文字列へ結合
+		var involvedList, refList []string
+		for k := range involvedMap {
+			involvedList = append(involvedList, k)
+		}
+		for k := range refIDMap {
+			refList = append(refList, k)
+		}
+
+		allInvolved := strings.Join(involvedList, " ")
+		references := strings.Join(refList, " ")
 
 		// 【重要】INSERT OR REPLACE で、既読状態も最新に更新
 		_, err = a.db.Exec(`
-			INSERT OR REPLACE INTO messages (id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) 
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			msg.Id, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
+			INSERT OR REPLACE INTO messages (id, thread_id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) 
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			msg.Id, msg.ThreadId, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
 		if err != nil {
 			fmt.Printf("SyncHistoricalMessages: error %s\n", err)
 			continue
@@ -642,4 +674,80 @@ func (a *App) SaveSettingsRaw(jsonText string) error {
 	globalConfig = temp
 	fmt.Println("⚙️ settings.json を更新し、メモリに反映しました")
 	return nil
+}
+
+// GetThreadHistory: 指定されたメールに関連するスレッド履歴を物理的な ID 鎖から抽出する
+func (a *App) GetThreadHistory(targetMessageID string, threadID string, references string) ([]MessageSummary, error) {
+	// 🌟 1. References 文字列を個別の ID 配列に分割 (スペースや改行で区切られている)
+	refIDs := strings.Fields(references)
+
+	// もし自分の ID があれば検索対象に加える（相手から見て自分は Ref になるため）
+	if targetMessageID != "" {
+		refIDs = append(refIDs, targetMessageID)
+	}
+
+	// 検索対象が何もない場合は空で返す（おもてなし）
+	if len(refIDs) == 0 && threadID == "" {
+		return []MessageSummary{}, nil
+	}
+
+	var conditions []string
+	var args []interface{}
+
+	// 🌟 2. Message-ID による物理的な鎖の検索 (IN 句の動的生成)
+	if len(refIDs) > 0 {
+		placeholders := make([]string, len(refIDs))
+		for i, id := range refIDs {
+			placeholders[i] = "?"
+			args = append(args, id)
+		}
+		// 「自分の ID が相手の Ref にある」か「相手の ID が自分の Ref にある」かを網羅
+		conditions = append(conditions, fmt.Sprintf(
+			"(message_id IN (%s) OR references_ids LIKE ?)",
+			strings.Join(placeholders, ","),
+		))
+		// LIKE 用の引数を追加（References 内に自分の ID が含まれるか）
+		args = append(args, "%"+targetMessageID+"%")
+	}
+
+	// 🌟 3. Gmail Thread ID による検索 (予備の強力な紐付け)
+	if threadID != "" {
+		conditions = append(conditions, "thread_id = ?")
+		args = append(args, threadID)
+	}
+
+	// SQL 組み立て
+	whereClause := strings.Join(conditions, " OR ")
+	query := fmt.Sprintf(`
+		SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read, manual_importance 
+		FROM messages 
+		WHERE %s 
+		ORDER BY timestamp ASC`, // 🌟 過去から未来へ時系列順に並べる
+		whereClause,
+	)
+
+	// 🌟 4. 実行とスキャン
+	rows, err := a.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("スレッド履歴取得失敗: %w", err)
+	}
+	defer rows.Close()
+
+	var results []MessageSummary
+	for rows.Next() {
+		var m MessageSummary
+		var deadlineNull sql.NullString
+		err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet,
+			&m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead, &m.ManualImportance)
+		if err != nil {
+			fmt.Printf("Related err: %s\n", err)
+			continue
+		}
+		if deadlineNull.Valid {
+			m.Deadline = deadlineNull.String
+		}
+		results = append(results, m)
+	}
+
+	return results, nil
 }
