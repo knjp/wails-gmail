@@ -348,7 +348,8 @@ func (a *App) SyncMessages() error {
 			}
 		}
 
-		var sender, subject, to, cc string
+		var sender, subject, to, cc, msgID string
+		var involved, refIDs []string
 		for _, h := range msg.Payload.Headers {
 			if strings.EqualFold(h.Name, "From") {
 				sender = h.Value
@@ -362,13 +363,26 @@ func (a *App) SyncMessages() error {
 			if strings.EqualFold(h.Name, "Cc") {
 				cc = h.Value
 			}
+			if strings.EqualFold(h.Name, "From") || strings.EqualFold(h.Name, "To") || strings.EqualFold(h.Name, "Cc") {
+				involved = append(involved, h.Value)
+			}
+			if strings.EqualFold(h.Name, "Message-ID") {
+				msgID = h.Value
+			}
+			if strings.EqualFold(h.Name, "Message-ID") || strings.EqualFold(h.Name, "References") || strings.EqualFold(h.Name, "In-Reply-To") {
+				refIDs = append(refIDs, h.Value)
+			}
+
 		}
 		combinedRecipient := to + " " + cc
+		allInvolved := strings.Join(involved, " ")
+		references := strings.Join(refIDs, " ")
 
 		// 3. 🌟 INSERT OR IGNORE を活用
-		_, err = a.db.Exec(`INSERT OR IGNORE INTO messages (id, sender, recipient, subject, snippet, timestamp, is_read) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			msg.Id, sender, combinedRecipient, subject, msg.Snippet, msg.InternalDate, isRead)
+		_, err = a.db.Exec(`INSERT OR IGNORE INTO messages (id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			msg.Id, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
 		if err != nil {
+			fmt.Printf("SyncMessages: error %s\n", err)
 			continue
 		}
 
@@ -430,7 +444,8 @@ func (a *App) SyncHistoricalMessages(pageToken string) (string, error) {
 		}
 
 		// ヘッダー解析（差出人・件名）
-		var sender, subject, to, cc string
+		var sender, subject, to, cc, msgID string
+		var involved, refIDs []string
 		for _, h := range msg.Payload.Headers {
 			if strings.EqualFold(h.Name, "From") {
 				sender = h.Value
@@ -444,14 +459,29 @@ func (a *App) SyncHistoricalMessages(pageToken string) (string, error) {
 			if strings.EqualFold(h.Name, "Cc") {
 				cc = h.Value
 			}
+			if strings.EqualFold(h.Name, "From") || strings.EqualFold(h.Name, "To") || strings.EqualFold(h.Name, "Cc") {
+				involved = append(involved, h.Value)
+			}
+			if strings.EqualFold(h.Name, "Message-ID") {
+				msgID = h.Value
+			}
+			if strings.EqualFold(h.Name, "Message-ID") || strings.EqualFold(h.Name, "References") || strings.EqualFold(h.Name, "In-Reply-To") {
+				refIDs = append(refIDs, h.Value)
+			}
 		}
 		combinedRecipient := to + " " + cc
+		allInvolved := strings.Join(involved, " ")
+		references := strings.Join(refIDs, " ")
 
 		// 【重要】INSERT OR REPLACE で、既読状態も最新に更新
 		_, err = a.db.Exec(`
-			INSERT OR REPLACE INTO messages (id, sender, recipient, subject, snippet, timestamp, is_read) 
-			VALUES (?, ?, ?, ?, ?, ?, ?)`,
-			msg.Id, sender, combinedRecipient, subject, msg.Snippet, msg.InternalDate, isRead)
+			INSERT OR REPLACE INTO messages (id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) 
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			msg.Id, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
+		if err != nil {
+			fmt.Printf("SyncHistoricalMessages: error %s\n", err)
+			continue
+		}
 
 		go func(id string, subject string, sender string, recipient string, snippet string) {
 			if snippet != "" && subject == "" {
@@ -511,7 +541,6 @@ func (a *App) executeAllCleanUp() {
 	}
 
 	for _, conf := range configs {
-		// 🌟 以前作った「ルールベースの削除関数」を再利用！
 		if err := a.CleanUpByRule(conf.Rules); err != nil {
 			fmt.Printf("⚠️ お掃除エラー (%s): %v\n", conf.Name, err)
 		}
@@ -523,22 +552,47 @@ func (a *App) CleanUpByRule(rules ChannelRules) error {
 		return nil
 	}
 
+	// 🌟 1. まず、削除対象の ID リストを DB から取得する
 	whereClause, args := a.BuildWhereClause(rules)
-
-	query := fmt.Sprintf(
-		"DELETE FROM messages WHERE (%s) AND timestamp < datetime('now', '-%d day')",
-		whereClause,
-		rules.TTLdays,
+	selectQuery := fmt.Sprintf(
+		"SELECT id FROM messages WHERE (%s) AND timestamp < datetime('now', '-%d day')",
+		whereClause, rules.TTLdays,
 	)
 
-	// 🌟 3. 実行
-	_, err := a.db.Exec(query, args...)
+	rows, err := a.db.Query(selectQuery, args...)
 	if err != nil {
-		return fmt.Errorf("削除失敗: %w", err)
+		return err
+	}
+	defer rows.Close()
+
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err == nil {
+			ids = append(ids, id)
+		}
 	}
 
-	fmt.Printf("🧹 チャンネルルールに基づいて %d 日前のメールを掃除しました\n", rules.TTLdays)
-	return nil
+	if len(ids) == 0 {
+		return nil
+	}
+
+	// 🌟 2. Gmail サーバー側のゴミ箱へ移動（一括処理）
+	// 大量にある場合は loop で a.TrashMessage(id) を呼ぶか、Batch API を検討
+	fmt.Printf("🚀 %d 件の古いメールを Gmail のゴミ箱へ移動中...\n", len(ids))
+	for _, id := range ids {
+		_ = a.TrashMessage(id)
+	}
+
+	// 🌟 3. 最後に DB から物理削除（以前のコード）
+	deleteQuery := fmt.Sprintf(
+		"DELETE FROM messages WHERE (%s) AND timestamp < datetime('now', '-%d day')",
+		whereClause, rules.TTLdays,
+	)
+	_, err = a.db.Exec(deleteQuery, args...)
+
+	fmt.Printf("🧹 サーバーとDBの両方から %d 日前のメールを掃除しました\n", rules.TTLdays)
+	return err
 }
 
 // 🌟 デスクトップ・Web共通の「生のJSON読み込み」

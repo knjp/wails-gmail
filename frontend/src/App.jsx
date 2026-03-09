@@ -44,6 +44,7 @@ function App() {
     const [overlayWorkspace, setOverlayWorkspace] = useState(null);
     const sidebarRef = useRef(null);
     const [sidebarRect, setSidebarRect] = useState({ left:0, top: 0 , height: 0});
+    const [sidebarWidth, setSidebarWidth] = useState(240);
 
     const handleManualSummarize = useCallback(async () => {
         if (!selectedMsg) return;
@@ -249,7 +250,16 @@ function App() {
             )}
 
             <div className="main-layout">
-                <div ref={sidebarRef}>
+                <ResizablePane
+                    width={sidebarWidth}
+                    min={180}
+                    max={420}
+                    onResize={setSidebarWidth}
+                    persistKey="ui:sidebarPaneWidth"
+                    className="eptive flex-none h-full"
+                    handleClassName="absolute top-0 right-0 h-full w-[10px] bg-slate-300/70 hover:bg-slate-400 cursor-col-resize transition-colors"
+                >
+                <div ref={sidebarRef} className="h-full">
                 <ChannelSidebar
                     workspaces={workspaces}
                     activeGroup={activeGroup}
@@ -264,6 +274,8 @@ function App() {
                     onOpenSettings={openSettings}
                 />
                 </div>
+                </ResizablePane>
+
                 {overlayWorkspace && (
                     <ChannelOverlayPane
                         group={overlayWorkspace}

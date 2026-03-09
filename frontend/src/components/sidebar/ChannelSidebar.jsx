@@ -7,56 +7,144 @@ function SearchBar({ query, onQueryChange, onSearch }) {
     [onSearch]
   );
   return (
-    <div className="search-bar">
+    <div className="p-2">
       <input
-        type="text"
-        placeholder="AIであいまい検索..."
         value={query}
         onChange={(e) => onQueryChange(e.target.value)}
         onKeyDown={handleKeyDown}
+        className="w-full border rounded px-2 py-1"
+        placeholder="検索..."
+        aria-label="検索語"
       />
-      <button onClick={onSearch}>検索</button>
+      <button onClick={onSearch} className="ml-2 px-2 py-1 border rounded">
+        検索
+      </button>
     </div>
   );
 }
 
 const WorkspaceGroup = memo(function WorkspaceGroup({
-  group,
-  isExpanded,
-  activeTab,
-  onToggleGroup,
-  onSelectTab,
+  group, isExpanded, activeTab, onToggleGroup, onSelectTab, onOpenWorkspace,
 }) {
-  return (
-    <div className="sidebar-group flex flex-col gap-1">
-      <div
-        className={`cursor-pointer text-xl font-bold p-2 rounded transition-all duration-200 flex items-center gap-2 ${
-          activeTab === group.group_name
-            ? "bg-blue-600 text-white shadow-lg scale-[1.02]"
-            : "hover:bg-slate-200 text-slate-700"
-        }`}
-        onClick={() => {
-          onToggleGroup(isExpanded ? null : group.group_name);
-          onSelectTab(group.group_name);
-        }}
-      >
-        <span className="text-sm opacity-70">{isExpanded ? "▼" : "▶"}</span>
-        {group.group_name}
-      </div>
+  const isActive = isExpanded || activeTab === group.group_name;
+  const channelCount = Array.isArray(group.channels) ? group.channels.length : 0;
 
-      {isExpanded && group.type === "auto_group" && (
-        <div className="group-items">
-          {group.channels?.map((channel) => (
-            <div
-              key={channel}
-              className={`channel-item ${activeTab === channel ? "active" : ""}`}
-              onClick={() => onSelectTab(channel)}
-            >
-              <span className="hash">#</span> {channel.split("<")[0]}
-            </div>
-          ))}
+  const baseBtn =
+    "w-full flex items-center gap-2 px-3 py-2 rounded-lg border " +
+    "shadow-sm transition-all select-none " +
+    "hover:-translate-y-0.5 hover:shadow-md " +
+    "focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500";
+
+  const activeCls =
+    "bg-sky-50 border-sky-300 text-sky-900 " +
+    "dark:bg-sky-900/30 dark:border-sky-700 dark:text-sky-100";
+
+  const inactiveCls =
+    "bg-white border-slate-200 text-slate-800 hover:bg-slate-50 " +
+    "dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 " +
+    "dark:hover:bg-slate-700/60";
+
+  return (
+    <div className="px-2 py-1">
+      <button
+        className={`${baseBtn} ${isActive ? activeCls : inactiveCls} group relative`}
+        onClick={() => {
+          // ① まずタブをこのグループへ
+          onSelectTab(group.group_name);
+          // ② useOverlay=true のときはオーバレイ
+          if (onOpenWorkspace) {
+            onOpenWorkspace(group);
+          } else {
+            // ③ それ以外は従来の展開/折りたたみ
+            onToggleGroup(isExpanded ? null : group.group_name);
+          }
+        }}
+        title={group.group_name}
+        aria-expanded={!!isExpanded}
+        aria-label={`${group.group_name} を開く`}
+      >
+        {/* 左アイコン */}
+        <span
+          className={
+            "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md " +
+            (isActive
+              ? "bg-sky-100 text-sky-700 dark:bg-sky-800 dark:text-sky-100"
+              : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200")
+          }
+          aria-hidden="true"
+        >
+          🗂️
+        </span>
+
+        {/* 中央テキスト（幅追従＋省略） */}
+        <span className="flex-1 min-w-0 text-left">
+          <span className="block font-medium leading-tight truncate text-sm sm:text-base">
+            {group.group_name}
+          </span>
+          <span className="block text-xs sm:text-[13px] text-slate-500 dark:text-slate-300">
+            {group.type === "auto_group" ? "自動グループ" : "カスタム"}
+          </span>
+        </span>
+
+        {/* チャネル数バッジ */}
+        <span
+          className={
+            "ml-2 inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold " +
+            (isActive ? "bg-sky-600 text-white" : "bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-white")
+          }
+        >
+          {channelCount}
+        </span>
+
+        {/* 折りたたみアイコン（useOverlay=false の時のみ） */}
+        {!onOpenWorkspace && (
+          <span
+            className={
+              "ml-1 text-slate-500 dark:text-slate-300 transition-transform " +
+              (isExpanded ? "rotate-90" : "")
+            }
+            aria-hidden="true"
+          >
+            ▶
+          </span>
+        )}
+      </button>
+
+      {/* 折りたたみ配下（useOverlay=false のときだけ） */}
+      {isExpanded && group.type === "auto_group" && !onOpenWorkspace && (
+        <div className="pl-11 pt-1 pb-2 flex flex-col gap-1.5">
+          {group.channels?.map((channel) => {
+            const isActiveCh = activeTab === channel;
+            return (
+              <button
+                key={channel}
+                onClick={() => onSelectTab(channel)}
+                className={[
+                  "group w-full text-left",
+                  "px-3 py-1.5 rounded-lg border text-sm",
+                  "flex items-center gap-2",
+                  "transition-all hover:-translate-y-0.5 hover:shadow-sm",
+                  "focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-500",
+                  isActiveCh
+                    ? "bg-sky-50 border-sky-300 text-sky-900 dark:bg-sky-900/30 dark:border-sky-700 dark:text-sky-100"
+                    : "bg-white border-slate-200 text-slate-800 hover:bg-slate-50 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 dark:hover:bg-slate-700/60",
+                ].join(" ")}
+              >
+                <span
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200"
+                  aria-hidden="true"
+                >
+                  #
+                </span>
+                <span className="flex-1 min-w-0 truncate">{channel.split("<")[0]}</span>
+                <span className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-400">
+                  ↗
+                </span>
+              </button>
+            );
+          })}
           {(!group.channels || group.channels.length === 0) && (
-            <div className="channel-item-empty">(該当者なし)</div>
+            <div className="px-2 py-1 text-slate-500">(該当者なし)</div>
           )}
         </div>
       )}
@@ -68,6 +156,7 @@ function ChannelSidebarBase({
   workspaces,
   activeGroup,
   activeTab,
+  onOpenWorkspace,
   onToggleGroup,
   onSelectTab,
   query,
@@ -77,52 +166,66 @@ function ChannelSidebarBase({
   onOpenSettings,
 }) {
   return (
-    <div className="channel-sidebar">
-      <SearchBar query={query} onQueryChange={onQueryChange} onSearch={onSearch} />
-
-      <div className="sidebar-header"><h3>🚀 Workspaces</h3></div>
-
-      <div className="channel-list p-4 flex flex-col gap-4">
-        {workspaces?.map((group) => (
-          <WorkspaceGroup
-            key={group.group_name}
-            group={group}
-            isExpanded={activeGroup === group.group_name}
-            activeTab={activeTab}
-            onToggleGroup={onToggleGroup}
-            onSelectTab={onSelectTab}
-          />
-        ))}
+    /**
+     * ★ 重要：縦の flex 3分割
+     *  - ヘッダー（shrink-0）
+     *  - 本文（flex-1 overflow-y-auto）：ここだけスクロール
+     *  - フッター（sticky bottom-0 / もしくは mt-auto shrink-0）
+     */
+    <aside className="w-full h-full min-w-0 flex flex-col">
+      {/* Header */}
+      <div className="shrink-0">
+        <h4 className="px-3 py-2 text-sm font-semibold">🚀 Workspaces</h4>
+        <SearchBar query={query} onQueryChange={onQueryChange} onSearch={onSearch} />
       </div>
 
-      <div className="sidebar-footer">
-        <button className="settings-btn" onClick={onOpenChannelsEditor}>⚙️ チャンネル設定</button>
-        <button className="settings-btn" onClick={onOpenSettings} style={{ marginTop: 10 }}>🔧 アプリ基本設定</button>
+      {/* Body: scrollable */}
+      <div className="flex-1 overflow-y-auto px-0.5">
+        <div className="mt-2">
+          {workspaces?.map((group) => (
+            <WorkspaceGroup
+              key={group.group_name}
+              group={group}
+              isExpanded={activeGroup === group.group_name}
+              activeTab={activeTab}
+              onToggleGroup={onToggleGroup}
+              onSelectTab={onSelectTab}
+              onOpenWorkspace={onOpenWorkspace}
+            />
+          ))}
+        </div>
       </div>
-    </div>
+
+      {/* Footer: 固定（sticky） */}
+      <div className="sticky bottom-0 z-10 bg-white/85 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-t border-slate-200 px-3 py-2 dark:bg-slate-800/85 dark:border-slate-700">
+        <div className="flex gap-2">
+          <button onClick={onOpenChannelsEditor} className="px-2 py-1 border rounded">
+            ⚙️ チャンネル設定
+          </button>
+          <button onClick={onOpenSettings} className="px-2 py-1 border rounded">
+            🔧 アプリ基本設定
+          </button>
+        </div>
+      </div>
+    </aside>
   );
 }
 
-// どの props 変化で再レンダするかを明示（必要十分な比較）
+// 比較関数は現状どおり
 function propsAreEqual(prev, next) {
-  // 文字列/プリミティブ
   if (prev.activeGroup !== next.activeGroup) return false;
   if (prev.activeTab !== next.activeTab) return false;
   if (prev.query !== next.query) return false;
-
-  // workspaces は API 取得後に“新しい配列”になることが多い。
-  // 大規模比較は避け、参照同一性で十分（変われば再レンダOK）。
   if (prev.workspaces !== next.workspaces) return false;
-
-  // ハンドラは親で useCallback 化しておく前提
   if (prev.onToggleGroup !== next.onToggleGroup) return false;
   if (prev.onSelectTab !== next.onSelectTab) return false;
   if (prev.onQueryChange !== next.onQueryChange) return false;
   if (prev.onSearch !== next.onSearch) return false;
   if (prev.onOpenChannelsEditor !== next.onOpenChannelsEditor) return false;
   if (prev.onOpenSettings !== next.onOpenSettings) return false;
-
+  if (prev.onOpenWorkspace !== next.onOpenWorkspace) return false;
   return true;
 }
 
 export default memo(ChannelSidebarBase, propsAreEqual);
+``

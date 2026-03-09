@@ -95,7 +95,17 @@ export default function ResizablePane({
   };
 
   return (
-    <div className={className} style={{ width, position: "relative" }}>
+    <div 
+      className={className}
+      style={{
+        position: "relative",
+        width,
+        flexBasis: width,
+        flexGrow: 0,
+        flexShrink: 0,
+        height: "100%,"
+      }}
+    >
       {children}
       <div
         role="separator"

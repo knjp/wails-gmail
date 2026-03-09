@@ -147,8 +147,12 @@ func (a *App) initDB() error {
 
 	// テーブル作成
 	a.db.Exec(`CREATE TABLE IF NOT EXISTS messages (
-		id TEXT PRIMARY KEY, sender TEXT,
+		id TEXT PRIMARY KEY,
+		sender TEXT,
 		recipient TEXT,
+		all_involved_adresses TEXT,
+		message_id TEXT,
+		references_ids TEXT,
 		subject TEXT,
 		snippet TEXT,
 		timestamp INTEGER,
@@ -233,14 +237,10 @@ func (a *App) initGmailService() error {
 func (a *App) startBackgroundTasks() {
 	// 🌟 1. お掃除タスク（1時間ごと）
 	go func() {
-		// 起動直後のバタつきを避けるため、ストラ氏も納得の「3分待機」は維持
 		time.Sleep(3 * time.Minute)
 		for {
 			fmt.Println("🧹 バックグラウンドお掃除を開始...")
-
-			// 🌟 ここで「新世界」のルールベースお掃除を呼び出す！
 			a.executeAllCleanUp()
-
 			time.Sleep(1 * time.Hour)
 		}
 	}()
