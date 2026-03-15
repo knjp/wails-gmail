@@ -20,8 +20,8 @@ export function useWorkspaces({ enabled, onPickInitial }) {
         const first = list[0];
         if (first?.channels?.length > 0) {
           onPickInitial(first.channels[0]);
-        } else if (first?.group_name) {
-          onPickInitial(first.group_name);
+        } else if (first?.id) {
+          onPickInitial(first.id);
         }
       }
     } catch (e) {
