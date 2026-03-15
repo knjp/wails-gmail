@@ -16,7 +16,6 @@ import RelatedPane from "./components/related/RelatedPane";
 import ResizablePane from "./components/common/ResizablePane";
 import ChannelOverlayPane from "./components/sidebar/ChannelOverlayPane";
 
-
 function App() {
     // const [activeTab, setActiveTab] = useState("All");
     const [activeTab, setActiveTab] = useState("inbox");
@@ -172,6 +171,17 @@ function App() {
       [setQuery]
     );
 
+    const tabLabels = useMemo(() => {
+        const map = {};
+        for (const g of workspaces) {
+            map[g.id] = g.group_name;
+            for (const ch of g.channels ?? []) {
+                map[ch] = ch; // チャンネルは名前そのまま
+            }
+        }
+        return map;
+    }, [workspaces]);
+
     const handleSearch = useCallback(() => handleAISearch(), [handleAISearch]);
     const openChannelsEditor = useCallback(() => handleOpenChannelsEditor(), [handleOpenChannelsEditor]);
     const openSettings = useCallback(() => handleOpenSettings(), [handleOpenSettings]);
@@ -303,7 +313,8 @@ function App() {
                     className="mail-list-pane"
                     handleClassName="absolute top-0 right-0 h-full w-[10px] bg-slate-300/80 hover:bg-slate-400 cursor-col-resize transition-colors select-none"
                 >
-                    <div className="pane-header">{activeTab}</div>
+                    <div className="pane-header">{tabLabels[activeTab] ?? activeTab}</div>
+
                     <div className="list-container">
                         {/* 中央：メールリスト */}
                         {messages.length === 0 && <div className="info">メールがありません</div>}
