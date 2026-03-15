@@ -28,6 +28,7 @@ const WorkspaceGroup = memo(function WorkspaceGroup({
 }) {
   const isActive = isExpanded || activeTab === group.group_name;
   const channelCount = Array.isArray(group.channels) ? group.channels.length : 0;
+  const typeLabel = { auto_group: "自動グループ", fixed: "固定", default: "標準", recommend: "推奨"};
 
   const baseBtn =
     "w-full flex items-center gap-2 px-3 py-2 rounded-lg border " +
@@ -50,7 +51,7 @@ const WorkspaceGroup = memo(function WorkspaceGroup({
         className={`${baseBtn} ${isActive ? activeCls : inactiveCls} group relative`}
         onClick={() => {
           // ① まずタブをこのグループへ
-          onSelectTab(group.group_name);
+          onSelectTab(group.id);
           // ② useOverlay=true のときはオーバレイ
           if (onOpenWorkspace) {
             onOpenWorkspace(group);
@@ -59,7 +60,7 @@ const WorkspaceGroup = memo(function WorkspaceGroup({
             onToggleGroup(isExpanded ? null : group.group_name);
           }
         }}
-        title={group.group_name}
+        title={group.id}
         aria-expanded={!!isExpanded}
         aria-label={`${group.group_name} を開く`}
       >
@@ -82,7 +83,7 @@ const WorkspaceGroup = memo(function WorkspaceGroup({
             {group.group_name}
           </span>
           <span className="block text-xs sm:text-[13px] text-slate-500 dark:text-slate-300">
-            {group.type === "auto_group" ? "自動グループ" : "カスタム"}
+            {typeLabel[group.type] ?? "その他"}
           </span>
         </span>
 

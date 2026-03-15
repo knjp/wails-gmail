@@ -18,7 +18,8 @@ import ChannelOverlayPane from "./components/sidebar/ChannelOverlayPane";
 
 
 function App() {
-    const [activeTab, setActiveTab] = useState("All");
+    // const [activeTab, setActiveTab] = useState("All");
+    const [activeTab, setActiveTab] = useState("inbox");
     const [selectedMsg, setSelectedMsg] = useState(null);
     const [query, setQuery] = useState("");
     const [summary, setSummary] = useState("")
@@ -95,8 +96,9 @@ function App() {
     const authReady = !showAuthModal && !!myAddress;
     const { workspaces, reloadFromJson } = useWorkspaces({
         enabled: authReady,
-        onPickInitial: setActiveTab,
-    })
+        onPickInitial: (tab) => { return; },
+        //onPickInitial: setActiveTab,
+    });
 
     const handleManualImportance = useCallback(async (level) => {
         if (!selectedMsg) return;

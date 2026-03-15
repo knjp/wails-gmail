@@ -29,20 +29,22 @@ func (a *App) GetChannels() ([]Channel, error) {
 	return res, nil
 }
 
-func (a *App) GetMessagesByChannel(channelName string) ([]MessageSummary, error) {
+func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 
 	var condition string
 	var args []interface{}
 
-	if channelName == "📥 全ての未読" {
+	//if channelName == "📥 全ての未読" {
+	switch channelID {
+	case "unread":
 		condition = "is_read = 0"
-	} else if channelName == "📥 全てのメール" {
+	case "inbox":
 		condition = "1=1"
-	} else {
+	default:
 		configs, _ := a.LoadChannelConfigs()
 		var targetRules *ChannelRules
 		for _, c := range configs {
-			if c.Name == channelName {
+			if c.ID == channelID {
 				targetRules = &c.Rules
 				break
 			}
@@ -53,9 +55,9 @@ func (a *App) GetMessagesByChannel(channelName string) ([]MessageSummary, error)
 			return a.GetMessagesByRules(*targetRules)
 		}
 
-		if strings.Contains(channelName, "@") {
+		if strings.Contains(channelID, "@") {
 			condition = "sender = ?"
-			args = append(args, channelName)
+			args = append(args, channelID)
 		} else {
 			// どれにも該当しない場合は空リスト
 			return []MessageSummary{}, nil

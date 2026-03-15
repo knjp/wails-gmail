@@ -3,6 +3,7 @@ import React from "react";
 import EmailHeader from "./EmailHeader";
 import EmailActions from "./EmailActions";
 import ImportancePicker from "./ImportancePicker";
+import ToggleRelated from "./ToggleRelated";
 import AiInfoSection from "./AiInfoSection";
 import EmailBodyFrame from "./EmailBodyFrame";
 
@@ -43,6 +44,10 @@ export default function EmailView({
             isSummarizing={isSummarizing}
             onSummarize={onSummarize}
             onDelete={() => onDelete(selectedMsg)}
+          />
+          <ToggleRelated
+            onToggleRelated={onToggleRelated}
+            showRelated={showRelated}
           />
           <ImportancePicker
             current={selectedMsg.importance}

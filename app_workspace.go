@@ -26,6 +26,7 @@ type ChannelConfig struct {
 
 // 🌟 Reactへ返すための「階層型」データ構造
 type WorkspaceFolder struct {
+	Id        string   `json:"id"`
 	GroupName string   `json:"group_name"` // "🏢 社内" など
 	Type      string   `json:"type"`       // auto_group , fixed
 	Channels  []string `json:"channels"`   // ["田中太郎 <tanaka@...>", "佐藤次郎 <sato@...>"] など
@@ -43,14 +44,16 @@ func (a *App) LoadChannelConfigs() ([]ChannelConfig, error) {
 			defaultChannels := `[
 				{"id": "institutes001", "name": "🏢 gmail", "type": "auto_group", "rules": { "domains": ["@%gmail.com"], "keywords": [], "importance_min": 0, "ttl_days" : 0}},
 				{"id": "institutes002", "name": "🏢 outlook", "type": "auto_group", "rules": { "domains": ["@%outlook.com", "@hotmail.com"], "keywords": [], "importance_min": 0,"ttl_days" : 0 } },
-				{"id": "priority", "name": "🔥 最優先（手動設定）", "type": "auto_group", "rules": { "domains": [], "keywords": [], "importance_min": 4, "ttl_days" : 0 } },
-				{"id": "all-unread", "name": "📥 全ての未読", "type": "fixed", "rules": { "domains": [], "keywords": [], "importance_min": 0, "ttl_days" : 0 } },
-				{"id": "all-unread", "name": "📥 全てのメール", "type": "fixed", "rules": { "domains": [], "keywords": [], "importance_min": 0, "ttl_days" : 0 }}
 			]`
 			os.WriteFile(channelsFile, []byte(defaultChannels), 0644)
 			fmt.Println("⚠️ デフォルト設定を作成しました")
 		}
 	}
+	/*
+		{"id": "priority", "name": "🔥 最優先（手動設定）", "type": "auto_group", "rules": { "domains": [], "keywords": [], "importance_min": 4, "ttl_days" : 0 } },
+		{"id": "all-unread", "name": "📥 全ての未読", "type": "fixed", "rules": { "domains": [], "keywords": [], "importance_min": 0, "ttl_days" : 0 } },
+		{"id": "all-unread", "name": "📥 全てのメール", "type": "fixed", "rules": { "domains": [], "keywords": [], "importance_min": 0, "ttl_days" : 0 }}
+	*/
 
 	// 🌟 1. 前に作った定数 channelsFile ("config/channels.json") を読み込む
 	data, err := os.ReadFile(channelsFile)
@@ -76,14 +79,57 @@ func (a *App) GetWorkspaceList() ([]WorkspaceFolder, error) {
 	// 1. channels.json を読み込む (ChannelConfig の配列)
 	configs, _ := a.LoadChannelConfigs()
 
+	rows, _ := a.db.Query(`
+        SELECT SUBSTR(sender, INSTR(sender, '@')) as domain 
+        FROM messages 
+        GROUP BY domain 
+        ORDER BY COUNT(*) DESC LIMIT 3`)
+
+	for rows.Next() {
+		var d string
+		rows.Scan(&d)
+		autoID := "auto-" + strings.TrimPrefix(d, "@")
+
+		configs = append(configs, ChannelConfig{
+			ID:    autoID,
+			Name:  "✨ 推奨: " + d,
+			Type:  "recommend",
+			Rules: ChannelRules{Domains: []string{d}},
+		})
+	}
+
+	defaultWorkspaces := []ChannelConfig{
+		{
+			ID:    "inbox",
+			Name:  "📥 全てのメール",
+			Type:  "default",
+			Rules: ChannelRules{TTLdays: 0}, // 抽出条件は GetMessagesByChannel 側で判定
+		},
+		{
+			ID:    "unread",
+			Name:  "📧 未読のみ",
+			Type:  "default",
+			Rules: ChannelRules{TTLdays: 0},
+		},
+		{
+			ID:    "priority",
+			Name:  "🔥 最優先（手動設定）",
+			Type:  "default",
+			Rules: ChannelRules{ImportanceMin: 4, TTLdays: 0},
+		},
+	}
+
+	allConfigs := append(defaultWorkspaces, configs...)
+
 	var result []WorkspaceFolder
 
-	for _, conf := range configs {
+	for _, conf := range allConfigs {
 		// 2. 各ルールの「中身（人）」を GetDynamicChannels に聞きに行く
 		senders, _ := a.GetDynamicChannels(conf.Rules)
 
 		// 3. Reactが喜ぶ「グループ名」と「人リスト」のペアを作る
 		folder := WorkspaceFolder{
+			Id:        conf.ID,
 			GroupName: conf.Name,
 			Type:      conf.Type,
 			Channels:  senders,
