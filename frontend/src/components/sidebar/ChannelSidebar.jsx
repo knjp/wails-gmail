@@ -26,7 +26,7 @@ function SearchBar({ query, onQueryChange, onSearch }) {
 const WorkspaceGroup = memo(function WorkspaceGroup({
   group, isExpanded, activeTab, onToggleGroup, onSelectTab, onOpenWorkspace,
 }) {
-  const isActive = isExpanded || activeTab === group.group_name;
+  const isActive = isExpanded || activeTab === group.id;
   const channelCount = Array.isArray(group.channels) ? group.channels.length : 0;
   const typeLabel = { auto_group: "自動グループ", fixed: "固定", default: "標準", recommend: "推奨"};
 
@@ -48,71 +48,38 @@ const WorkspaceGroup = memo(function WorkspaceGroup({
   return (
     <div className="px-2 py-1">
       <button
-        className={`${baseBtn} ${isActive ? activeCls : inactiveCls} group relative`}
+        className={baseBtn + " " + (isActive ? activeCls : inactiveCls)}
         onClick={() => {
-          // ① まずタブをこのグループへ
-          onSelectTab(group.id);
-          // ② useOverlay=true のときはオーバレイ
-          if (onOpenWorkspace) {
-            onOpenWorkspace(group);
+          //onSelectTab(group.id);
+          if (group.channels?.length > 0) {
+            onSelectTab(group.id);
           } else {
-            // ③ それ以外は従来の展開/折りたたみ
-            onToggleGroup(isExpanded ? null : group.group_name);
+            onSelectTab(group.id);
+          }
+          if (!onOpenWorkspace) {
+            onToggleGroup(isExpanded ? null : group.id);
           }
         }}
-        title={group.id}
-        aria-expanded={!!isExpanded}
-        aria-label={`${group.group_name} を開く`}
       >
-        {/* 左アイコン */}
-        <span
-          className={
-            "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md " +
-            (isActive
-              ? "bg-sky-100 text-sky-700 dark:bg-sky-800 dark:text-sky-100"
-              : "bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200")
-          }
-          aria-hidden="true"
+        🗂️
+        <span className="flex-1 truncate">{group.group_name}</span>
+        <span className="text-xs opacity-60">
+          {typeLabel[group.type] ?? "その他"}
+        </span>
+            {/* ▶ボタン */}
+        <button
+          className="ml-2 px-2 py-1 text-sm rounded border bg-white hover:bg-slate-100"
+          onClick={(e) => {
+            e.stopPropagation(); 
+            onOpenWorkspace?.(group); // ← これでオーバレイを出す
+          }}
         >
-          🗂️
-        </span>
-
-        {/* 中央テキスト（幅追従＋省略） */}
-        <span className="flex-1 min-w-0 text-left">
-          <span className="block font-medium leading-tight truncate text-sm sm:text-base">
-            {group.group_name}
-          </span>
-          <span className="block text-xs sm:text-[13px] text-slate-500 dark:text-slate-300">
-            {typeLabel[group.type] ?? "その他"}
-          </span>
-        </span>
-
-        {/* チャネル数バッジ */}
-        <span
-          className={
-            "ml-2 inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-semibold " +
-            (isActive ? "bg-sky-600 text-white" : "bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-white")
-          }
-        >
-          {channelCount}
-        </span>
-
-        {/* 折りたたみアイコン（useOverlay=false の時のみ） */}
-        {!onOpenWorkspace && (
-          <span
-            className={
-              "ml-1 text-slate-500 dark:text-slate-300 transition-transform " +
-              (isExpanded ? "rotate-90" : "")
-            }
-            aria-hidden="true"
-          >
             ▶
-          </span>
-        )}
+        </button>
       </button>
 
       {/* 折りたたみ配下（useOverlay=false のときだけ） */}
-      {isExpanded && group.type === "auto_group" && !onOpenWorkspace && (
+      {isExpanded && (group.type === "auto_group" || group.type === "recommend") && !onOpenWorkspace && (
         <div className="pl-11 pt-1 pb-2 flex flex-col gap-1.5">
           {group.channels?.map((channel) => {
             const isActiveCh = activeTab === channel;
@@ -187,7 +154,7 @@ function ChannelSidebarBase({
             <WorkspaceGroup
               key={group.group_name}
               group={group}
-              isExpanded={activeGroup === group.group_name}
+              isExpanded={activeGroup === group.id}
               activeTab={activeTab}
               onToggleGroup={onToggleGroup}
               onSelectTab={onSelectTab}

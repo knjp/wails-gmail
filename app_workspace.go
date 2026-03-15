@@ -13,7 +13,8 @@ type ChannelRules struct {
 	Domains       []string `json:"domains"`        // ["@company.com", "@partner.jp"]
 	Keywords      []string `json:"keywords"`       // ["見積", "重要"]
 	ImportanceMin int      `json:"importance_min"` // 4以上（重要）など
-	TTLdays       int      `json:"ttl_days"`       // 4以上（重要）など
+	TTLdays       int      `json:"ttl_days"`
+	IsUnreadOnly  bool     `json:"is_unread_only"`
 }
 
 // ChannelConfig: 1つのワークスペース（または固定チャンネル）の定義
@@ -26,10 +27,11 @@ type ChannelConfig struct {
 
 // 🌟 Reactへ返すための「階層型」データ構造
 type WorkspaceFolder struct {
-	Id        string   `json:"id"`
-	GroupName string   `json:"group_name"` // "🏢 社内" など
-	Type      string   `json:"type"`       // auto_group , fixed
-	Channels  []string `json:"channels"`   // ["田中太郎 <tanaka@...>", "佐藤次郎 <sato@...>"] など
+	Id        string       `json:"id"`
+	GroupName string       `json:"group_name"` // "🏢 社内" など
+	Type      string       `json:"type"`       // auto_group , fixed
+	Channels  []string     `json:"channels"`   // ["田中太郎 <tanaka@...>", "佐藤次郎 <sato@...>"] など
+	Rules     ChannelRules `json:"rules"`      // 抽出ルール
 }
 
 func (a *App) LoadChannelConfigs() ([]ChannelConfig, error) {
@@ -49,11 +51,6 @@ func (a *App) LoadChannelConfigs() ([]ChannelConfig, error) {
 			fmt.Println("⚠️ デフォルト設定を作成しました")
 		}
 	}
-	/*
-		{"id": "priority", "name": "🔥 最優先（手動設定）", "type": "auto_group", "rules": { "domains": [], "keywords": [], "importance_min": 4, "ttl_days" : 0 } },
-		{"id": "all-unread", "name": "📥 全ての未読", "type": "fixed", "rules": { "domains": [], "keywords": [], "importance_min": 0, "ttl_days" : 0 } },
-		{"id": "all-unread", "name": "📥 全てのメール", "type": "fixed", "rules": { "domains": [], "keywords": [], "importance_min": 0, "ttl_days" : 0 }}
-	*/
 
 	// 🌟 1. 前に作った定数 channelsFile ("config/channels.json") を読み込む
 	data, err := os.ReadFile(channelsFile)
@@ -85,10 +82,11 @@ func (a *App) GetWorkspaceList() ([]WorkspaceFolder, error) {
         GROUP BY domain 
         ORDER BY COUNT(*) DESC LIMIT 3`)
 
+	i := 1
 	for rows.Next() {
 		var d string
 		rows.Scan(&d)
-		autoID := "auto-" + strings.TrimPrefix(d, "@")
+		autoID := fmt.Sprintf("recommend%03d", i)
 
 		configs = append(configs, ChannelConfig{
 			ID:    autoID,
@@ -96,6 +94,7 @@ func (a *App) GetWorkspaceList() ([]WorkspaceFolder, error) {
 			Type:  "recommend",
 			Rules: ChannelRules{Domains: []string{d}},
 		})
+		i++
 	}
 
 	defaultWorkspaces := []ChannelConfig{
@@ -109,7 +108,7 @@ func (a *App) GetWorkspaceList() ([]WorkspaceFolder, error) {
 			ID:    "unread",
 			Name:  "📧 未読のみ",
 			Type:  "default",
-			Rules: ChannelRules{TTLdays: 0},
+			Rules: ChannelRules{IsUnreadOnly: true, TTLdays: 0},
 		},
 		{
 			ID:    "priority",
@@ -133,6 +132,7 @@ func (a *App) GetWorkspaceList() ([]WorkspaceFolder, error) {
 			GroupName: conf.Name,
 			Type:      conf.Type,
 			Channels:  senders,
+			Rules:     conf.Rules,
 		}
 		result = append(result, folder)
 	}

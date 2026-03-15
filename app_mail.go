@@ -31,37 +31,22 @@ func (a *App) GetChannels() ([]Channel, error) {
 
 func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 
+	workspaces, _ := a.GetWorkspaceList()
+	for _, ws := range workspaces {
+		if ws.Id == channelID {
+			return a.GetMessagesByRules(ws.Rules)
+		}
+	}
+
 	var condition string
 	var args []interface{}
 
-	//if channelName == "📥 全ての未読" {
-	switch channelID {
-	case "unread":
-		condition = "is_read = 0"
-	case "inbox":
-		condition = "1=1"
-	default:
-		configs, _ := a.LoadChannelConfigs()
-		var targetRules *ChannelRules
-		for _, c := range configs {
-			if c.ID == channelID {
-				targetRules = &c.Rules
-				break
-			}
-		}
-
-		// ルールが見つかれば、専用の抽出関数へ飛ばして即終了（Return）
-		if targetRules != nil {
-			return a.GetMessagesByRules(*targetRules)
-		}
-
-		if strings.Contains(channelID, "@") {
-			condition = "sender = ?"
-			args = append(args, channelID)
-		} else {
-			// どれにも該当しない場合は空リスト
-			return []MessageSummary{}, nil
-		}
+	if strings.Contains(channelID, "@") {
+		condition = "sender = ?"
+		args = append(args, channelID)
+	} else {
+		// どれにも該当しない場合は空リスト
+		return []MessageSummary{}, nil
 	}
 
 	query := fmt.Sprintf("SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC", condition)
@@ -101,7 +86,6 @@ func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 		whereClause,
 	)
 
-	// 🌟 5. 実行して Message 構造体に詰める
 	rows, err := a.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ルールクエリ失敗: %w", err)
@@ -154,6 +138,10 @@ func (a *App) BuildWhereClause(rules ChannelRules) (string, []interface{}) {
 	if rules.ImportanceMin > 0 {
 		conditions = append(conditions, "manual_importance >= ?")
 		args = append(args, rules.ImportanceMin)
+	}
+
+	if rules.IsUnreadOnly {
+		conditions = append(conditions, "is_read = 0")
 	}
 
 	// 条件がない場合は全件マッチ

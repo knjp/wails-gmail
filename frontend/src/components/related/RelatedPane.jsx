@@ -2,7 +2,7 @@
 import React, { memo } from "react";
 
 function RelatedPaneBase({ threadMsgs, aiMsgs, onSelect }) {
-   const [mode, setMode] = React.useState('thread');
+  const [mode, setMode] = React.useState('thread');
   const displayMsgs = mode === 'thread' ? threadMsgs : aiMsgs;
 
   return (
@@ -43,10 +43,10 @@ function RelatedPaneBase({ threadMsgs, aiMsgs, onSelect }) {
 }
 
 // 余計な再レンダを避けるため memo 化（配列参照が変わらない間は再描画しない）
-//export default memo(RelatedPaneBase);
-export default memo(RelatedPaneBase, (prev, next) => {
-  return (
-    prev.threadMsgs === next.threadMsgs &&
-    prev.aiMsgs === next.aiMsgs
-  );
-});
+export default RelatedPaneBase;
+//export default memo(RelatedPaneBase, (prev, next) => {
+//  return (
+//    prev.threadMsgs === next.threadMsgs &&
+//    prev.aiMsgs === next.aiMsgs
+//  );
+//});

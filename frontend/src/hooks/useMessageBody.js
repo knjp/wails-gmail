@@ -26,7 +26,7 @@ export function useMessageBody() {
       // 初期表示を即座に反映
       setLoadingBody(true);
       setRelatedMsgs([]);
-      setThreadMsgs([]);
+      // setThreadMsgs([]);
       setFullBody("読み込み中...");
 
       // 1) 本文取得
@@ -37,7 +37,7 @@ export function useMessageBody() {
         api.markAsRead(msg.id);   // サーバ側更新（失敗してもUIの既読は維持）
 
         api.getThreadHistory(msg.message_id, msg.thread_id, msg.references_ids)
-          .then(history => setThreadMsgs(history || []))
+          .then(history => setThreadMsgs(history? [...history] : []))
           .catch(e => console.error("スレッド履歴エラー:", e));
 
         api.getAISearchResults(msg.snippet)
