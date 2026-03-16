@@ -47,8 +47,6 @@ func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 		return []MessageSummary{}, nil
 	}
 
-	//query := fmt.Sprintf("SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC", condition)
-
 	query := fmt.Sprintf("SELECT %s FROM messages WHERE %s ORDER BY timestamp DESC", MessageSelectFields, condition)
 	rows, err := a.db.Query(query, args...)
 	if err != nil {
@@ -58,21 +56,6 @@ func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 
 	var results []MessageSummary
 	for rows.Next() {
-		/*
-			var m MessageSummary
-			var deadlineNull sql.NullString
-			err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
-			if err != nil {
-				fmt.Println("Scan Error: ", err)
-				continue
-			}
-
-			if deadlineNull.Valid {
-				m.Deadline = deadlineNull.String
-			} else {
-				m.Deadline = ""
-			}
-		*/
 		if m, err := a.scanMessageSummary(rows); err == nil {
 			results = append(results, m)
 		}
@@ -83,15 +66,7 @@ func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 // GetMessagesByRules: ルールに合致するメッセージをすべて取得する
 func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 	whereClause, args := a.BuildWhereClause(rules)
-
-	/*
-		query := fmt.Sprintf(
-			"SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC LIMIT 100",
-			whereClause,
-		)
-	*/
 	query := fmt.Sprintf("SELECT %s FROM messages WHERE %s ORDER BY timestamp DESC LIMIT 100", MessageSelectFields, whereClause)
-
 	rows, err := a.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("ルールクエリ失敗: %w", err)
@@ -100,12 +75,6 @@ func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 
 	var msgs []MessageSummary
 	for rows.Next() {
-		/*
-			var m MessageSummary
-			var deadlineNull sql.NullString
-			err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
-			if err == nil {
-		*/
 		if m, err := a.scanMessageSummary(rows); err == nil {
 			msgs = append(msgs, m)
 		}
