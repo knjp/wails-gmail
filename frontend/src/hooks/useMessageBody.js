@@ -49,7 +49,6 @@ export function useMessageBody() {
       } finally {
         setLoadingBody(false);
       }
-
     },
     []
   );

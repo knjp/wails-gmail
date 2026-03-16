@@ -133,7 +133,7 @@ func (s *Store) GetMessagesByIDs(ids []string) ([]MessageSummary, error) {
 
 	// SQLの "IN (?, ?, ?)" の部分を生成
 	// IDの数だけ ? を並べる
-	query := "SELECT id, subject, sender, recipient, timestamp FROM messages WHERE id IN ("
+	query := "SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, deadline, timestamp, is_read, manual_importance FROM messages WHERE id IN ("
 	args := make([]interface{}, len(ids))
 	for i, id := range ids {
 		query += "?"
@@ -155,8 +155,13 @@ func (s *Store) GetMessagesByIDs(ids []string) ([]MessageSummary, error) {
 	var msgs []MessageSummary
 	for rows.Next() {
 		var m MessageSummary
-		if err := rows.Scan(&m.ID, &m.Subject, &m.From, &m.Recipient, &m.Timestamp); err != nil {
+		var deadlineNull sql.NullString
+		if err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &deadlineNull,
+			&m.Timestamp, &m.IsRead, &m.ManualImportance); err != nil {
 			continue
+		}
+		if deadlineNull.Valid {
+			m.Deadline = deadlineNull.String
 		}
 		msgs = append(msgs, m)
 	}

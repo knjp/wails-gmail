@@ -76,25 +76,29 @@ func (a *App) GetWorkspaceList() ([]WorkspaceFolder, error) {
 	// 1. channels.json を読み込む (ChannelConfig の配列)
 	configs, _ := a.LoadChannelConfigs()
 
-	rows, _ := a.db.Query(`
-        SELECT SUBSTR(sender, INSTR(sender, '@')) as domain 
-        FROM messages 
-        GROUP BY domain 
-        ORDER BY COUNT(*) DESC LIMIT 3`)
+	rows, err := a.db.Query(`
+		           SELECT SUBSTR(sender, INSTR(sender, '@')) as domain
+		           FROM messages
+		           GROUP BY domain
+		           ORDER BY COUNT(*) DESC LIMIT 3`)
 
-	i := 1
-	for rows.Next() {
-		var d string
-		rows.Scan(&d)
-		autoID := fmt.Sprintf("recommend%03d", i)
+	if err != nil {
+		fmt.Printf("DB Err: %s\n", err)
+	} else {
+		i := 1
+		for rows.Next() {
+			var d string
+			rows.Scan(&d)
+			autoID := fmt.Sprintf("recommend%03d", i)
 
-		configs = append(configs, ChannelConfig{
-			ID:    autoID,
-			Name:  "✨ 推奨: " + d,
-			Type:  "recommend",
-			Rules: ChannelRules{Domains: []string{d}},
-		})
-		i++
+			configs = append(configs, ChannelConfig{
+				ID:    autoID,
+				Name:  "✨ 推奨: " + d,
+				Type:  "recommend",
+				Rules: ChannelRules{Domains: []string{d}},
+			})
+			i++
+		}
 	}
 
 	defaultWorkspaces := []ChannelConfig{

@@ -30,7 +30,6 @@ func (a *App) GetChannels() ([]Channel, error) {
 }
 
 func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
-
 	workspaces, _ := a.GetWorkspaceList()
 	for _, ws := range workspaces {
 		if ws.Id == channelID {
@@ -80,9 +79,8 @@ func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 	whereClause, args := a.BuildWhereClause(rules)
 
-	//query := fmt.Sprintf("SELECT id, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC", condition)
 	query := fmt.Sprintf(
-		"SELECT id, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC LIMIT 100",
+		"SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC LIMIT 100",
 		whereClause,
 	)
 
@@ -96,8 +94,7 @@ func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 	for rows.Next() {
 		var m MessageSummary
 		var deadlineNull sql.NullString
-		err := rows.Scan(&m.ID, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
-		//err := rows.Scan(&m.ID, &m.From, &m.Snippet, &m.Subject, &m.Timestamp, &m.IsRead, &m.ManualImportance)
+		err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
 		if err == nil {
 			msgs = append(msgs, m)
 		}
@@ -577,7 +574,7 @@ func (a *App) CleanUpByRule(rules ChannelRules) error {
 	// 🌟 1. まず、削除対象の ID リストを DB から取得する
 	whereClause, args := a.BuildWhereClause(rules)
 	selectQuery := fmt.Sprintf(
-		"SELECT id FROM messages WHERE (%s) AND timestamp < datetime('now', '-%d day')",
+		"SELECT id FROM messages WHERE (%s) AND (timestamp / 1000) < unixepoch('now', '-%d day')",
 		whereClause, rules.TTLdays,
 	)
 
@@ -608,7 +605,7 @@ func (a *App) CleanUpByRule(rules ChannelRules) error {
 
 	// 🌟 3. 最後に DB から物理削除（以前のコード）
 	deleteQuery := fmt.Sprintf(
-		"DELETE FROM messages WHERE (%s) AND timestamp < datetime('now', '-%d day')",
+		"DELETE FROM messages WHERE (%s) AND (timestamp / 1000) < unixepoch('now', '-%d day')",
 		whereClause, rules.TTLdays,
 	)
 	_, err = a.db.Exec(deleteQuery, args...)

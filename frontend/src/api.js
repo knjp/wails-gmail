@@ -35,8 +35,7 @@ export const api = {
             rawData = await window?.go?.main?.App?.GetWorkspaceList();
         }
 
-        console.log("📥 受信したワークスペース構造:", rawData);
-        
+        // console.log("📥 受信したワークスペース構造:", rawData);
         return Array.isArray(rawData) ? rawData : [];
     },
 
