@@ -186,6 +186,25 @@ func (a *App) initDB() error {
 	return nil
 }
 
+const MessageSelectFields = "id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read, manual_importance"
+
+func (a *App) scanMessageSummary(rows *sql.Rows) (MessageSummary, error) {
+	var m MessageSummary
+	var deadlineNull sql.NullString
+
+	// ここにすべての Scan ロジックを集約する！
+	err := rows.Scan(
+		&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From,
+		&m.Recipient, &m.Subject, &m.Snippet, &m.Importance,
+		&deadlineNull, &m.Timestamp, &m.IsRead, &m.ManualImportance,
+	)
+
+	if err == nil && deadlineNull.Valid {
+		m.Deadline = deadlineNull.String
+	}
+	return m, err
+}
+
 func (a *App) initAI() error {
 	// URL構文チェックだけは必ず行う
 	u, err := url.Parse(globalConfig.OllamaHost)

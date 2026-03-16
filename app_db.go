@@ -126,14 +126,14 @@ func cleanHTML(html string) string {
 }
 
 // GetMessagesByIDs は指定された複数のIDに合致するメッセージ情報を返します
-func (s *Store) GetMessagesByIDs(ids []string) ([]MessageSummary, error) {
+func (a *App) GetMessagesByIDs(ids []string) ([]MessageSummary, error) {
 	if len(ids) == 0 {
 		return []MessageSummary{}, nil
 	}
 
 	// SQLの "IN (?, ?, ?)" の部分を生成
 	// IDの数だけ ? を並べる
-	query := "SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, deadline, timestamp, is_read, manual_importance FROM messages WHERE id IN ("
+	query := fmt.Sprintf("SELECT %s FROM messages WHERE id IN (", MessageSelectFields)
 	args := make([]interface{}, len(ids))
 	for i, id := range ids {
 		query += "?"
@@ -146,24 +146,18 @@ func (s *Store) GetMessagesByIDs(ids []string) ([]MessageSummary, error) {
 
 	// IDの順番が検索スコア順なので、その順番を維持したい場合は
 	// ここで並び替えの処理を足すこともできますが、まずは単純に取得します
-	rows, err := s.conn.Query(query, args...)
+	rows, err := a.store.conn.Query(query, args...)
 	if err != nil {
+		fmt.Printf("ERROR: %s\n\n\n", err)
 		return nil, err
 	}
 	defer rows.Close()
 
 	var msgs []MessageSummary
 	for rows.Next() {
-		var m MessageSummary
-		var deadlineNull sql.NullString
-		if err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &deadlineNull,
-			&m.Timestamp, &m.IsRead, &m.ManualImportance); err != nil {
-			continue
+		if m, err := a.scanMessageSummary(rows); err == nil {
+			msgs = append(msgs, m)
 		}
-		if deadlineNull.Valid {
-			m.Deadline = deadlineNull.String
-		}
-		msgs = append(msgs, m)
 	}
 	return msgs, nil
 }

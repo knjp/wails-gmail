@@ -212,7 +212,7 @@ func (a *App) GetAISearchResults(query string) ([]MessageSummary, error) {
 	}
 
 	// 3. DB から詳細情報を取得（a.store は db.go で作った Store）
-	msgs, err := a.store.GetMessagesByIDs(ids)
+	msgs, err := a.GetMessagesByIDs(ids)
 	if err != nil {
 		return nil, err
 	}

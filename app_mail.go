@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -48,7 +47,9 @@ func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 		return []MessageSummary{}, nil
 	}
 
-	query := fmt.Sprintf("SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC", condition)
+	//query := fmt.Sprintf("SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC", condition)
+
+	query := fmt.Sprintf("SELECT %s FROM messages WHERE %s ORDER BY timestamp DESC", MessageSelectFields, condition)
 	rows, err := a.db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -57,20 +58,24 @@ func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 
 	var results []MessageSummary
 	for rows.Next() {
-		var m MessageSummary
-		var deadlineNull sql.NullString
-		err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
-		if err != nil {
-			fmt.Println("Scan Error: ", err)
-			continue
-		}
+		/*
+			var m MessageSummary
+			var deadlineNull sql.NullString
+			err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
+			if err != nil {
+				fmt.Println("Scan Error: ", err)
+				continue
+			}
 
-		if deadlineNull.Valid {
-			m.Deadline = deadlineNull.String
-		} else {
-			m.Deadline = ""
+			if deadlineNull.Valid {
+				m.Deadline = deadlineNull.String
+			} else {
+				m.Deadline = ""
+			}
+		*/
+		if m, err := a.scanMessageSummary(rows); err == nil {
+			results = append(results, m)
 		}
-		results = append(results, m)
 	}
 	return results, nil
 }
@@ -79,10 +84,13 @@ func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 	whereClause, args := a.BuildWhereClause(rules)
 
-	query := fmt.Sprintf(
-		"SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC LIMIT 100",
-		whereClause,
-	)
+	/*
+		query := fmt.Sprintf(
+			"SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read FROM messages WHERE %s ORDER BY timestamp DESC LIMIT 100",
+			whereClause,
+		)
+	*/
+	query := fmt.Sprintf("SELECT %s FROM messages WHERE %s ORDER BY timestamp DESC LIMIT 100", MessageSelectFields, whereClause)
 
 	rows, err := a.db.Query(query, args...)
 	if err != nil {
@@ -92,10 +100,13 @@ func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 
 	var msgs []MessageSummary
 	for rows.Next() {
-		var m MessageSummary
-		var deadlineNull sql.NullString
-		err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
-		if err == nil {
+		/*
+			var m MessageSummary
+			var deadlineNull sql.NullString
+			err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet, &m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead)
+			if err == nil {
+		*/
+		if m, err := a.scanMessageSummary(rows); err == nil {
 			msgs = append(msgs, m)
 		}
 	}
@@ -705,13 +716,16 @@ func (a *App) GetThreadHistory(targetMessageID string, threadID string, referenc
 
 	// SQL 組み立て
 	whereClause := strings.Join(conditions, " OR ")
-	query := fmt.Sprintf(`
-		SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read, manual_importance 
-		FROM messages 
-		WHERE %s 
-		ORDER BY timestamp ASC`, // 🌟 過去から未来へ時系列順に並べる
-		whereClause,
-	)
+	/*
+		query := fmt.Sprintf(`
+			SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read, manual_importance
+			FROM messages
+			WHERE %s
+			ORDER BY timestamp ASC`, // 🌟 過去から未来へ時系列順に並べる
+			whereClause,
+		)
+	*/
+	query := fmt.Sprintf("SELECT %s FROM messages WHERE %s ORDER BY timestamp ASC", MessageSelectFields, whereClause)
 
 	// 🌟 4. 実行とスキャン
 	rows, err := a.db.Query(query, args...)
@@ -722,18 +736,23 @@ func (a *App) GetThreadHistory(targetMessageID string, threadID string, referenc
 
 	var results []MessageSummary
 	for rows.Next() {
-		var m MessageSummary
-		var deadlineNull sql.NullString
-		err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet,
-			&m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead, &m.ManualImportance)
-		if err != nil {
-			fmt.Printf("Related err: %s\n", err)
-			continue
+		/*
+			var m MessageSummary
+			var deadlineNull sql.NullString
+			err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet,
+				&m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead, &m.ManualImportance)
+			if err != nil {
+				fmt.Printf("Related err: %s\n", err)
+				continue
+			}
+			if deadlineNull.Valid {
+				m.Deadline = deadlineNull.String
+			}
+		*/
+
+		if m, err := a.scanMessageSummary(rows); err == nil {
+			results = append(results, m)
 		}
-		if deadlineNull.Valid {
-			m.Deadline = deadlineNull.String
-		}
-		results = append(results, m)
 	}
 
 	return results, nil
