@@ -145,46 +145,80 @@ func (a *App) GetWorkspaceList() ([]WorkspaceFolder, error) {
 }
 
 // GetDynamicChannels: ルールに基づいて、合致する「送信者(sender)」を重複なく抽出する
+func (a *App) GetDynamicChannels500(rules ChannelRules) ([]string, error) {
+
+	whereClause, args := a.BuildWhereClause(rules, true)
+	query := fmt.Sprintf(`
+		SELECT DISTINCT sender FROM messages
+		WHERE %s
+			AND sender IS NOT NULL
+			AND sender != ''
+			AND sender NOT LIKE ?
+		ORDER BY sender ASC`,
+		whereClause,
+	)
+
+	finalArgs := append(args, "%"+globalConfig.MyAddress+"%")
+
+	rows, err := a.db.Query(query, finalArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("チャネル抽出失敗: %w", err)
+	}
+	defer rows.Close()
+
+	var senders []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err == nil {
+			for _, part := range strings.Fields(s) {
+				if !strings.Contains(part, globalConfig.MyAddress) && strings.Contains(part, "@") {
+					senders = append(senders, part)
+					fmt.Printf("GetDynamiChannels:senders  %s\n\n\n", part)
+				}
+			}
+		} else {
+			fmt.Printf("GetDynamiChannels:err  %s\n\n\n", err)
+			return senders, err
+		}
+	}
+	return uniqueStrings(senders), nil
+}
+
+// ReloadAndGetWorkspaces: Wailsから呼ばれる「再読み込み ＋ 一覧生成」の合体技
+func (a *App) ReloadAndGetWorkspaces() ([]WorkspaceFolder, error) {
+	// 1. 設定ファイルを再ロード（内部変数を更新）
+	_, err := a.LoadChannelConfigs()
+	if err != nil {
+		return nil, err
+	}
+	// 2. 最新の設定に基づき、Slack風の階層リストを生成して返す
+	return a.GetWorkspaceList()
+}
+
+// uniqueStrings: 文字列スライスから重複を取り除く関数
+func uniqueStrings(input []string) []string {
+	// 🌟 マップを「見張り番」として使う (メモリ空間の効率化)
+	m := make(map[string]bool)
+	var result []string
+
+	for _, s := range input {
+		// すでにマップに登録されているか確認
+		if !m[s] {
+			m[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
 func (a *App) GetDynamicChannels(rules ChannelRules) ([]string, error) {
-	var conditions []string
 	var args []interface{}
+	var whereClause string
 
-	// 🌟 1. ドメイン条件 (@company.com など)
-	if len(rules.Domains) > 0 {
-		var domainParts []string
-		for _, d := range rules.Domains {
-			domainParts = append(domainParts, "sender LIKE ?")
-			args = append(args, "%"+d+"%")
-		}
-		// ドメイン同士は OR で繋ぐ
-		conditions = append(conditions, "("+strings.Join(domainParts, " OR ")+")")
-	}
+	/*
+	 */
 
-	// 🌟 2. キーワード条件 (件名やスニペット)
-	if len(rules.Keywords) > 0 {
-		var kwParts []string
-		for _, k := range rules.Keywords {
-			kwParts = append(kwParts, "(subject LIKE ? OR snippet LIKE ?)")
-			args = append(args, "%"+k+"%", "%"+k+"%")
-		}
-		// キーワード同士も OR で繋ぐ
-		conditions = append(conditions, "("+strings.Join(kwParts, " OR ")+")")
-	}
-
-	// 🌟 3. 重要度条件 (4以上など)
-	if rules.ImportanceMin > 0 {
-		conditions = append(conditions, "manual_importance >= ?")
-		args = append(args, rules.ImportanceMin)
-	}
-
-	// 🌟 4. 全件マッチの安全策 (条件が何もない場合)
-	whereClause := "1=1"
-	if len(conditions) > 0 {
-		// 各カテゴリ（ドメイン、キーワード、重要度）は AND で結ぶのが現代的
-		whereClause = strings.Join(conditions, " AND ")
-	}
-
-	// 🌟 5. SQL実行：DISTINCT で重複を除去！
+	whereClause, args = a.BuildWhereClause(rules, true)
 	query := fmt.Sprintf(
 		"SELECT DISTINCT sender FROM messages WHERE %s ORDER BY sender ASC",
 		whereClause,
@@ -208,15 +242,4 @@ func (a *App) GetDynamicChannels(rules ChannelRules) ([]string, error) {
 		senders = []string{}
 	}
 	return senders, nil
-}
-
-// ReloadAndGetWorkspaces: Wailsから呼ばれる「再読み込み ＋ 一覧生成」の合体技
-func (a *App) ReloadAndGetWorkspaces() ([]WorkspaceFolder, error) {
-	// 1. 設定ファイルを再ロード（内部変数を更新）
-	_, err := a.LoadChannelConfigs()
-	if err != nil {
-		return nil, err
-	}
-	// 2. 最新の設定に基づき、Slack風の階層リストを生成して返す
-	return a.GetWorkspaceList()
 }

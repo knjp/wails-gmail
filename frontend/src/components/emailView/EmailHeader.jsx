@@ -2,6 +2,19 @@
 import React from "react";
 
 export default function EmailHeader({ selectedMsg, isDirect, onToggleRelated, showRelated }) {
+  const formatRecipient = (recipientStr) => {
+    if (!recipientStr) return "（宛先なし）";
+    
+    // カンマやスペースで分割（宛先を配列にする）
+    const addresses = recipientStr.split(/[ ,]+/).filter(Boolean);
+    
+    // 3名以上いる場合は、最初の2名だけ出して「ほか X 名」と表示
+    if (addresses.length > 2) {
+      return `${addresses.slice(0, 2).join(", ")} ほか ${addresses.length - 2} 名`;
+    }
+    return addresses.join(", ");
+  };
+
   return (
     <div className="header-main">
       {!isDirect && <span className="ref-badge">参考情報</span>}
@@ -15,8 +28,8 @@ export default function EmailHeader({ selectedMsg, isDirect, onToggleRelated, sh
 
         <div className="meta-row">
           <span className="meta-label">To:</span>
-          <span className="detail-to">
-            {selectedMsg.recipient || "（宛先なし）"}
+          <span className="detail-to truncate" title={selectedMsg.recipient}>
+            {formatRecipient(selectedMsg.recipient)}
           </span>
         </div>
 

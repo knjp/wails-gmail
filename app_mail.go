@@ -65,7 +65,7 @@ func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 
 // GetMessagesByRules: ルールに合致するメッセージをすべて取得する
 func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
-	whereClause, args := a.BuildWhereClause(rules)
+	whereClause, args := a.BuildWhereClause(rules, false)
 	query := fmt.Sprintf("SELECT %s FROM messages WHERE %s ORDER BY timestamp DESC LIMIT 100", MessageSelectFields, whereClause)
 	rows, err := a.db.Query(query, args...)
 	if err != nil {
@@ -87,18 +87,25 @@ func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 }
 
 // BuildWhereClause: ルールから SQL の WHERE 句と引数リストを生成する共通部品
-func (a *App) BuildWhereClause(rules ChannelRules) (string, []interface{}) {
-	var conditions []string
+func (a *App) BuildWhereClause(rules ChannelRules, onlySender bool) (string, []interface{}) {
+	var mainConditions []string
 	var args []interface{}
+	var orParts []string
 
 	// 1. ドメイン条件
 	if len(rules.Domains) > 0 {
 		var domainParts []string
 		for _, d := range rules.Domains {
-			domainParts = append(domainParts, "sender LIKE ?")
-			args = append(args, "%"+d+"%")
+			if onlySender {
+				domainParts = append(domainParts, "sender LIKE ?")
+				args = append(args, "%"+d+"%")
+			} else {
+				domainParts = append(domainParts, "(sender LIKE ? OR recipient LIKE ?)")
+				args = append(args, "%"+d+"%", "%"+d+"%")
+
+			}
 		}
-		conditions = append(conditions, "("+strings.Join(domainParts, " OR ")+")")
+		orParts = append(orParts, "("+strings.Join(domainParts, " OR ")+")")
 	}
 
 	// 2. キーワード条件
@@ -108,25 +115,30 @@ func (a *App) BuildWhereClause(rules ChannelRules) (string, []interface{}) {
 			kwParts = append(kwParts, "(subject LIKE ? OR snippet LIKE ?)")
 			args = append(args, "%"+k+"%", "%"+k+"%")
 		}
-		conditions = append(conditions, "("+strings.Join(kwParts, " OR ")+")")
+		orParts = append(orParts, "("+strings.Join(kwParts, " OR ")+")")
+	}
+
+	if len(orParts) > 0 {
+		mainConditions = append(mainConditions, "("+strings.Join(orParts, " OR ")+")")
 	}
 
 	// 3. 重要度条件
 	if rules.ImportanceMin > 0 {
-		conditions = append(conditions, "manual_importance >= ?")
+		mainConditions = append(mainConditions, "manual_importance >= ?")
 		args = append(args, rules.ImportanceMin)
 	}
 
 	if rules.IsUnreadOnly {
-		conditions = append(conditions, "is_read = 0")
+		mainConditions = append(mainConditions, "is_read = 0")
 	}
 
 	// 条件がない場合は全件マッチ
 	whereClause := "1=1"
-	if len(conditions) > 0 {
-		whereClause = strings.Join(conditions, " AND ")
+	if len(mainConditions) > 0 {
+		whereClause = strings.Join(mainConditions, " AND ")
 	}
 
+	// fmt.Printf("WHERE: %s\nargs: %s\n\n", whereClause, args)
 	return whereClause, args
 }
 
@@ -285,110 +297,24 @@ func (a *App) SyncMessages() error {
 		return fmt.Errorf("API未初期化")
 	}
 
-	// 1. 🌟 Q("newer_than:1d") で直近のメールだけに絞り、効率化
-	// MaxResults は 20->50 くらいに増やしても、重複をスキップするので高速です
 	res, err := a.srv.Users.Messages.List("me").Q("newer_than:1d").MaxResults(50).Do()
 	if err != nil {
 		return err
 	}
 
 	for _, m := range res.Messages {
-		// 2. 🌟 「事前チェック」 🌟
-		// すでに DB にあるメールなら、以降の重い処理（Get や AI学習）をスキップ！
 		var exists int
 		a.db.QueryRow("SELECT COUNT(*) FROM messages WHERE id = ?", m.Id).Scan(&exists)
 		if exists > 0 {
 			continue // 既に持っているので次のメールへ
 		}
 
-		// --- ここから先は「本当に新しいメール」だけが通れる聖域 ---
-		msg, err := a.srv.Users.Messages.Get("me", m.Id).Format("metadata").Do()
+		msg, _ := a.srv.Users.Messages.Get("me", m.Id).Format("metadata").Do()
 		if err != nil {
+			fmt.Printf("⚠️ メール取得失敗 (%s): %v\n", m.Id, err)
 			continue
 		}
-
-		isRead := 1
-		for _, label := range msg.LabelIds {
-			if label == "UNREAD" {
-				isRead = 0
-				break
-			}
-		}
-
-		var sender, subject, to, cc, msgID string
-		involvedMap := make(map[string]bool)
-		refIDMap := make(map[string]bool)
-
-		for _, h := range msg.Payload.Headers {
-			if strings.EqualFold(h.Name, "From") {
-				sender = h.Value
-			}
-			if strings.EqualFold(h.Name, "Subject") {
-				subject = h.Value
-			}
-			if strings.EqualFold(h.Name, "To") {
-				to = h.Value
-			}
-			if strings.EqualFold(h.Name, "Cc") {
-				cc = h.Value
-			}
-			if strings.EqualFold(h.Name, "From") || strings.EqualFold(h.Name, "To") || strings.EqualFold(h.Name, "Cc") {
-				for _, addr := range strings.Fields(h.Value) {
-					involvedMap[addr] = true
-				}
-			}
-			if strings.EqualFold(h.Name, "Message-ID") {
-				msgID = h.Value
-			}
-			if strings.EqualFold(h.Name, "References") || strings.EqualFold(h.Name, "In-Reply-To") {
-				for _, rid := range strings.Fields(h.Value) {
-					refIDMap[rid] = true
-				}
-			}
-
-		}
-		combinedRecipient := to + " " + cc
-
-		delete(refIDMap, msgID)
-		var involvedList, refList []string
-		for k := range involvedMap {
-			involvedList = append(involvedList, k)
-		}
-		for k := range refIDMap {
-			refList = append(refList, k)
-		}
-		allInvolved := strings.Join(involvedList, " ")
-		references := strings.Join(refList, " ")
-
-		// 3. 🌟 INSERT OR IGNORE を活用
-		_, err = a.db.Exec(`INSERT OR IGNORE INTO messages (id, thread_id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			msg.Id, msg.ThreadId, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
-		if err != nil {
-			fmt.Printf("SyncMessages: error %s\n", err)
-			continue
-		}
-
-		// 4. 🌟 新しいメールだけを Ollama に学習させる
-		go func(id string, subject string, sender string, recipient string, snippet string) {
-			if snippet != "" && subject == "" {
-				return
-			}
-			// 🌟 情報の「盛り合わせ」を作る 🌟
-			// 形式はAIが理解しやすい自然な形に
-			combinedText := fmt.Sprintf("From: %s\nTo: %s\nSubject: %s\nSnippet: %s",
-				sender, recipient, subject, snippet)
-			limit := 4000
-			if len(combinedText) > limit {
-				combinedText = combinedText[:limit]
-			}
-			// (略: 強化ベクトル化ロジック)
-			//combinedText := fmt.Sprintf("From: %s\nTo: %s\nSubject: %s\nSnippet: %s", sender, recipient, subject, snippet)
-			err := a.SyncEmailVector(id, combinedText)
-			if err != nil {
-				fmt.Printf("強化ベクトル化失敗: %v\n", err)
-			}
-
-		}(m.Id, subject, sender, combinedRecipient, msg.Snippet)
+		a.processSingleMessage(msg, false)
 	}
 	return nil
 }
@@ -413,97 +339,102 @@ func (a *App) SyncHistoricalMessages(pageToken string) (string, error) {
 		// metadata形式で「ラベル情報」も含めて取得
 		msg, err := a.srv.Users.Messages.Get("me", m.Id).Format("metadata").Do()
 		if err != nil {
-			continue
+			fmt.Printf("⚠️ メール取得失敗 (%s): %v\n", m.Id, err)
+			continue // この 1 通は諦めて次へ
+
 		}
-
-		// 既読判定（UNREADラベルがあるか）
-		isRead := 1
-		for _, label := range msg.LabelIds {
-			if label == "UNREAD" {
-				isRead = 0
-				break
-			}
-		}
-
-		// ヘッダー解析（差出人・件名）
-		var sender, subject, to, cc, msgID string
-		involvedMap := make(map[string]bool)
-		refIDMap := make(map[string]bool)
-		for _, h := range msg.Payload.Headers {
-			if strings.EqualFold(h.Name, "From") {
-				sender = h.Value
-			}
-			if strings.EqualFold(h.Name, "Subject") {
-				subject = h.Value
-			}
-			if strings.EqualFold(h.Name, "To") {
-				to = h.Value
-			}
-			if strings.EqualFold(h.Name, "Cc") {
-				cc = h.Value
-			}
-			if strings.EqualFold(h.Name, "Message-ID") {
-				msgID = h.Value
-			}
-			if strings.EqualFold(h.Name, "From") || strings.EqualFold(h.Name, "To") || strings.EqualFold(h.Name, "Cc") {
-				for _, addr := range strings.Fields(h.Value) {
-					involvedMap[addr] = true
-				}
-			}
-
-			if strings.EqualFold(h.Name, "References") || strings.EqualFold(h.Name, "In-Reply-To") {
-				for _, rid := range strings.Fields(h.Value) {
-					refIDMap[rid] = true
-				}
-			}
-		}
-		combinedRecipient := to + " " + cc
-		delete(refIDMap, msgID)
-
-		// 🌟 文字列へ結合
-		var involvedList, refList []string
-		for k := range involvedMap {
-			involvedList = append(involvedList, k)
-		}
-		for k := range refIDMap {
-			refList = append(refList, k)
-		}
-
-		allInvolved := strings.Join(involvedList, " ")
-		references := strings.Join(refList, " ")
-
-		// 【重要】INSERT OR REPLACE で、既読状態も最新に更新
-		_, err = a.db.Exec(`
-			INSERT OR REPLACE INTO messages (id, thread_id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) 
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			msg.Id, msg.ThreadId, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
-		if err != nil {
-			fmt.Printf("SyncHistoricalMessages: error %s\n", err)
-			continue
-		}
-
-		go func(id string, subject string, sender string, recipient string, snippet string) {
-			if snippet != "" && subject == "" {
-				return
-			}
-			combinedText := fmt.Sprintf("From: %s\nTo: %s\nSubject: %s\nSnippet: %s",
-				sender, recipient, subject, snippet)
-			limit := 4000
-			if len(combinedText) > limit {
-				combinedText = combinedText[:limit]
-			}
-
-			// これをベクトル化
-			err := a.SyncEmailVector(id, combinedText)
-			if err != nil {
-				fmt.Printf("強化ベクトル化失敗: %v\n", err)
-			}
-
-		}(m.Id, subject, sender, combinedRecipient, msg.Snippet)
+		a.processSingleMessage(msg, true)
 	}
-
 	// 次のページの合言葉を返す
 	return res.NextPageToken, nil
+}
+
+// 🌟 1通のメッセージを解析・保存・AI学習させる
+func (a *App) processSingleMessage(msg *gmail.Message, useReplace bool) error {
+	// 1. 既読判定
+	isRead := 1
+	for _, label := range msg.LabelIds {
+		if label == "UNREAD" {
+			isRead = 0
+			break
+		}
+	}
+
+	// 2. ヘッダー解析
+	var sender, subject, to, cc, msgID string
+	involvedMap := make(map[string]bool)
+	refIDMap := make(map[string]bool)
+
+	for _, h := range msg.Payload.Headers {
+		val := h.Value
+		if strings.EqualFold(h.Name, "From") {
+			sender = val
+		}
+		if strings.EqualFold(h.Name, "Subject") {
+			subject = val
+		}
+		if strings.EqualFold(h.Name, "To") {
+			to = val
+		}
+		if strings.EqualFold(h.Name, "Cc") {
+			cc = val
+		}
+		if strings.EqualFold(h.Name, "Message-ID") {
+			msgID = val
+		}
+
+		if strings.EqualFold(h.Name, "From") || strings.EqualFold(h.Name, "To") || strings.EqualFold(h.Name, "Cc") {
+			for _, addr := range strings.Fields(val) {
+				involvedMap[addr] = true
+			}
+		}
+		if strings.EqualFold(h.Name, "References") || strings.EqualFold(h.Name, "In-Reply-To") {
+			for _, rid := range strings.Fields(val) {
+				refIDMap[rid] = true
+			}
+		}
+	}
+
+	delete(refIDMap, msgID)
+	combinedRecipient := to + " " + cc
+
+	var involvedList, refList []string
+	for k := range involvedMap {
+		involvedList = append(involvedList, k)
+	}
+	for k := range refIDMap {
+		refList = append(refList, k)
+	}
+
+	allInvolved := strings.Join(involvedList, " ")
+	references := strings.Join(refList, " ")
+
+	// 3. DB保存（新規なら IGNORE、履歴なら REPLACE）
+	verb := "INSERT OR IGNORE"
+	if useReplace {
+		verb = "INSERT OR REPLACE"
+	}
+
+	sql := fmt.Sprintf(`%s INTO messages (id, thread_id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, verb)
+
+	_, err := a.db.Exec(sql, msg.Id, msg.ThreadId, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
+	if err != nil {
+		return err
+	}
+
+	// 4. AI学習（非同期）
+	go func() {
+		if msg.Snippet == "" && subject == "" {
+			return
+		}
+		text := fmt.Sprintf("From: %s\nTo: %s\nSubject: %s\nSnippet: %s", sender, combinedRecipient, subject, msg.Snippet)
+		if len(text) > 4000 {
+			text = text[:4000]
+		}
+		a.SyncEmailVector(msg.Id, text)
+	}()
+
+	return nil
 }
 
 func (a *App) SetManualImportance(id string, level int) error {
@@ -552,7 +483,7 @@ func (a *App) CleanUpByRule(rules ChannelRules) error {
 	}
 
 	// 🌟 1. まず、削除対象の ID リストを DB から取得する
-	whereClause, args := a.BuildWhereClause(rules)
+	whereClause, args := a.BuildWhereClause(rules, true)
 	selectQuery := fmt.Sprintf(
 		"SELECT id FROM messages WHERE (%s) AND (timestamp / 1000) < unixepoch('now', '-%d day')",
 		whereClause, rules.TTLdays,
@@ -644,7 +575,7 @@ func (a *App) SaveSettingsRaw(jsonText string) error {
 }
 
 // GetThreadHistory: 指定されたメールに関連するスレッド履歴を物理的な ID 鎖から抽出する
-func (a *App) GetThreadHistory(targetMessageID string, threadID string, references string) ([]MessageSummary, error) {
+func (a *App) GetThreadHistory(targetMessageID string, threadID string, references string, subject string) ([]MessageSummary, error) {
 	// 🌟 1. References 文字列を個別の ID 配列に分割 (スペースや改行で区切られている)
 	refIDs := strings.Fields(references)
 
@@ -660,6 +591,9 @@ func (a *App) GetThreadHistory(targetMessageID string, threadID string, referenc
 
 	var conditions []string
 	var args []interface{}
+
+	cleanSubject := strings.TrimPrefix(subject, "[SPF] ")
+	cleanSubject = strings.TrimPrefix(strings.TrimPrefix(cleanSubject, "Re: "), "Fwd: ")
 
 	// 🌟 2. Message-ID による物理的な鎖の検索 (IN 句の動的生成)
 	if len(refIDs) > 0 {
@@ -683,17 +617,13 @@ func (a *App) GetThreadHistory(targetMessageID string, threadID string, referenc
 		args = append(args, threadID)
 	}
 
+	if cleanSubject != "" {
+		conditions = append(conditions, "(subject LIKE ?)")
+		args = append(args, "%"+cleanSubject+"%")
+	}
+
 	// SQL 組み立て
 	whereClause := strings.Join(conditions, " OR ")
-	/*
-		query := fmt.Sprintf(`
-			SELECT id, thread_id, message_id, references_ids, sender, recipient, subject, snippet, importance, deadline, timestamp, is_read, manual_importance
-			FROM messages
-			WHERE %s
-			ORDER BY timestamp ASC`, // 🌟 過去から未来へ時系列順に並べる
-			whereClause,
-		)
-	*/
 	query := fmt.Sprintf("SELECT %s FROM messages WHERE %s ORDER BY timestamp ASC", MessageSelectFields, whereClause)
 
 	// 🌟 4. 実行とスキャン
@@ -705,20 +635,6 @@ func (a *App) GetThreadHistory(targetMessageID string, threadID string, referenc
 
 	var results []MessageSummary
 	for rows.Next() {
-		/*
-			var m MessageSummary
-			var deadlineNull sql.NullString
-			err := rows.Scan(&m.ID, &m.ThreadID, &m.MessageID, &m.ReferencesIDs, &m.From, &m.Recipient, &m.Subject, &m.Snippet,
-				&m.Importance, &deadlineNull, &m.Timestamp, &m.IsRead, &m.ManualImportance)
-			if err != nil {
-				fmt.Printf("Related err: %s\n", err)
-				continue
-			}
-			if deadlineNull.Valid {
-				m.Deadline = deadlineNull.String
-			}
-		*/
-
 		if m, err := a.scanMessageSummary(rows); err == nil {
 			results = append(results, m)
 		}

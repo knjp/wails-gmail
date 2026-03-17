@@ -103,12 +103,13 @@ export const api = {
         return window?.go?.main?.App?.GetAISearchResults(query);
     },
 
-    getThreadHistory: async (msgId, threadId, refs) => {
+    getThreadHistory: async (msgId, threadId, refs, subject_string) => {
         // refs はスペース区切りなので、念のため URL エンコード
         const params = new URLSearchParams({
             message_id: msgId || "",
             thread_id: threadId || "",
-            references: refs || ""
+            references: refs || "",
+            subject: subject_string || ""
         });
 
         if (!window.go) {
@@ -118,7 +119,7 @@ export const api = {
             return await response.json();
         } else {
             // 🖥️ Desktop版 (Wails)
-            return await window?.go?.main?.App?.GetThreadHistory(msgId, threadId, refs);
+            return await window?.go?.main?.App?.GetThreadHistory(msgId, threadId, refs, subject_string);
         }
     },
 

@@ -36,7 +36,7 @@ export function useMessageBody() {
         onMarkRead?.(msg.id);     // 既読化（親から受け取る）
         api.markAsRead(msg.id);   // サーバ側更新（失敗してもUIの既読は維持）
 
-        api.getThreadHistory(msg.message_id, msg.thread_id, msg.references_ids)
+        api.getThreadHistory(msg.message_id, msg.thread_id, msg.references_ids, msg.subject)
           .then(history => setThreadMsgs(history? [...history] : []))
           .catch(e => console.error("スレッド履歴エラー:", e));
 
