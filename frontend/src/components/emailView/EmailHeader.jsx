@@ -2,7 +2,7 @@
 import React from "react";
 import {useState} from 'react';
 
-export default function EmailHeader({ selectedMsg, isDirect, attachments, previewPdf, setPreviewPdf, onViewAttachment }) {
+export default function EmailHeader({ selectedMsg, isDirect, attachments, previewContent, setPreviewContent, onViewAttachment }) {
   const formatRecipient = (recipientStr) => {
     if (!recipientStr) return "（宛先なし）";
     
@@ -55,17 +55,25 @@ export default function EmailHeader({ selectedMsg, isDirect, attachments, previe
           </div>
         )}
 
-        {previewPdf && (
-          <div className="pdf-modal fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-10">
-            <div className="bg-white w-full h-full flex flex-col rounded-xl overflow-hidden">
-              <div className="p-4 flex justify-between items-center border-b">
-                <span className="font-bold">📄 PDF プレビュー</span>
-                <button onClick={() => setPreviewPdf(null)} className="text-2xl">×</button>
+        {previewContent && (
+          <div className="pdf-modal fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-10 backdrop-blur-sm">
+            <div className="bg-white w-full h-full flex flex-col rounded-2xl shadow-2xl overflow-hidden border border-slate-200">
+              
+              <div className="p-4 flex justify-between items-center bg-slate-50 border-b">
+                <span className="font-bold text-slate-700 flex items-center gap-2">
+                  📄 プレビュー表示
+                </span>
+                <button 
+                  onClick={() => setPreviewContent(null)} 
+                  className="hover:bg-slate-200 rounded-full w-8 h-8 flex items-center justify-center transition-colors"
+                >
+                  ×
+                </button>
               </div>
-              <iframe 
-                src={`data:application/pdf;base64,${previewPdf}`} 
-                className="w-full h-full border-none"
-              />
+              <div className="flex-1 w-full h-full bg-slate-100 flex items-center justify-center overflow-auto">
+                {previewContent}
+              </div>
+        
             </div>
           </div>
         )}

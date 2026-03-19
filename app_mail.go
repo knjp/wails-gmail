@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"html"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 	"google.golang.org/api/gmail/v1"
 )
 
@@ -243,6 +246,31 @@ func (a *App) GetAttachment(msgID string, attachID string) (string, error) {
 	return base64.StdEncoding.EncodeToString(decoded), nil
 }
 
+func (a *App) OpenAttachmentExternally(fileName string, base64Data string) error {
+	data, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return err
+	}
+
+	tmpPath := filepath.Join(os.TempDir(), fileName)
+	err = os.WriteFile(tmpPath, data, 0644)
+	if err != nil {
+		return err
+	}
+
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", tmpPath)
+	case "darwin":
+		cmd = exec.Command("open", tmpPath)
+	default: // linux
+		cmd = exec.Command("xdg-open", tmpPath)
+	}
+
+	return cmd.Run()
+}
+
 func (a *App) runBackgroundAnalysis(id string, body string) {
 	var subject, sender string
 	a.db.QueryRow("SELECT subject, sender FROM messages WHERE id = ?", id).Scan(&subject, &sender)
@@ -269,7 +297,7 @@ func (a *App) runBackgroundAnalysis(id string, body string) {
 
 // フロントエンドから呼ばれる関数
 func (a *App) OpenExternalLink(url string) {
-	runtime.BrowserOpenURL(a.ctx, url)
+	wailsRuntime.BrowserOpenURL(a.ctx, url)
 }
 
 // extractBody の最後、return する直前で加工

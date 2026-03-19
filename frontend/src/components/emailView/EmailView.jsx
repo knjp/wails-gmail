@@ -21,8 +21,8 @@ export default function EmailView({
   onToggleRelated,
   showRelated,
   attachments,
-  previewPdf,
-  setPreviewPdf,
+  previewContent,
+  setPreviewContent,
   onViewAttachment,
 }) {
   if (!selectedMsg) {
@@ -41,8 +41,8 @@ export default function EmailView({
           selectedMsg={selectedMsg}
           isDirect={isDirect}
           attachments={attachments}
-          previewPdf={previewPdf}
-          setPreviewPdf={setPreviewPdf}
+          previewContent={previewContent}
+          setPreviewContent={setPreviewContent}
           onViewAttachment={onViewAttachment}
         />
         <div className="header-actions-container">

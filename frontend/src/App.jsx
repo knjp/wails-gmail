@@ -45,19 +45,40 @@ function App() {
     const sidebarRef = useRef(null);
     const [sidebarRect, setSidebarRect] = useState({ left:0, top: 0 , height: 0});
     const [sidebarWidth, setSidebarWidth] = useState(240);
+    const [previewContent, setPreviewContent] = useState(null);
 
-const [previewPdf, setPreviewPdf] = useState(null); // Base64 データを入れる
-const handleViewAttachment = async (msgId, attachId) => {
-//    setLoadingBody(true);
-    try {
-        const base64Data = await api.getAttachment(msgId, attachId);
-        setPreviewPdf(base64Data);
-    } catch (e) {
-        alert("PDFの取得に失敗しました");
-    } finally {
-//        setLoadingBody(false);
-    }
-};
+    const handleViewAttachment = async (msgId, attachId, fileName) => {
+        try {
+            const base64Data = await api.getAttachment(msgId, attachId);
+            const ext = (fileName || "").split('.').pop().toLowerCase();
+
+            if (['jpg', 'jpeg', 'png', 'gif'].includes(ext)) {
+                setPreviewContent(<img src={`data:image/${ext};base64,${base64Data}`} className="max-w-full" />);
+            } else if (ext === 'pdf') {
+                // 🌟 PDF なら <iframe>
+                //setPreviewContent(<iframe src={`data:application/pdf;base64,${base64Data}`} className="w-full h-full" />);
+                setPreviewContent(
+                    <object 
+                        data={`data:application/pdf;base64,${base64Data}`} 
+                        type="application/pdf"
+                        className="w-full h-full border-none"
+                    >
+                    <p>PDFを表示できません。<a href={`data:application/pdf;base64,${base64Data}`} download={fileName}>ダウンロード</a>して確認してください。</p>
+                </object>
+                );
+            } else {
+                 // 🌟 Office系なら Go 側の「外部で開く」を呼ぶ！
+                await window.go.main.App.OpenAttachmentExternally(fileName, base64Data);
+                alert(`${fileName} を外部アプリで開きました`);
+            }
+        } catch (e) {
+            console.error("プレビュー失敗:", e);
+            alert("添付ファイルの取得に失敗しました");
+            //alert("PDFの取得に失敗しました");
+        } finally {
+    //        setLoadingBody(false);
+        }
+    };
 
     const handleManualSummarize = useCallback(async () => {
         if (!selectedMsg) return;
@@ -359,8 +380,8 @@ const handleViewAttachment = async (msgId, attachId) => {
                         onToggleRelated={toggleRelated}
                         showRelated={showRelated}
                         attachments={attachments}
-                        previewPdf={previewPdf}
-                        setPreviewPdf={setPreviewPdf}
+                        previewContent={previewContent}
+                        setPreviewContent={setPreviewContent}
                         onViewAttachment={handleViewAttachment}
                     />
                 </div>
