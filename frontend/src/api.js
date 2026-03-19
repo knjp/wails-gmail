@@ -144,8 +144,14 @@ export const api = {
     },
 
     // 🌟 重要度の上書き
+   changeAImadeImportance: async (id, level) => {
+        if (isWeb) return fetchApi("/api/change-ai-importance", { id, level }, 'POST');
+        return window?.go?.main?.App?.ChangeAImadeImportance(id, level);
+    },
+
+    // 🌟 重要度の上書き
     setManualImportance: async (id, level) => {
-        if (isWeb) return fetchApi("/api/set-importance", { id, level }, 'POST');
+        if (isWeb) return fetchApi("/api/set-manual-importance", { id, level }, 'POST');
         return window?.go?.main?.App?.SetManualImportance(id, level);
     },
 

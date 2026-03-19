@@ -10,7 +10,8 @@ import (
 // ChannelRules: メールの抽出条件（素材）を定義
 
 type ChannelRules struct {
-	Domains       []string `json:"domains"`        // ["@company.com", "@partner.jp"]
+	Domains       []string `json:"domains"`        // From または To/Cc
+	FromDomains   []string `json:"from_domains"`   // From (送り主) 限定
 	Keywords      []string `json:"keywords"`       // ["見積", "重要"]
 	ImportanceMin int      `json:"importance_min"` // 4以上（重要）など
 	TTLdays       int      `json:"ttl_days"`
@@ -144,6 +145,63 @@ func (a *App) GetWorkspaceList() ([]WorkspaceFolder, error) {
 	return result, nil
 }
 
+// ReloadAndGetWorkspaces: Wailsから呼ばれる「再読み込み ＋ 一覧生成」の合体技
+func (a *App) ReloadAndGetWorkspaces() ([]WorkspaceFolder, error) {
+	// 1. 設定ファイルを再ロード（内部変数を更新）
+	_, err := a.LoadChannelConfigs()
+	if err != nil {
+		return nil, err
+	}
+	// 2. 最新の設定に基づき、Slack風の階層リストを生成して返す
+	return a.GetWorkspaceList()
+}
+
+// uniqueStrings: 文字列スライスから重複を取り除く関数
+func uniqueStrings(input []string) []string {
+	// 🌟 マップを「見張り番」として使う (メモリ空間の効率化)
+	m := make(map[string]bool)
+	var result []string
+
+	for _, s := range input {
+		// すでにマップに登録されているか確認
+		if !m[s] {
+			m[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+func (a *App) GetDynamicChannels(rules ChannelRules) ([]string, error) {
+	var args []interface{}
+	var whereClause string
+
+	whereClause, args = a.BuildWhereClause(rules, false)
+	query := fmt.Sprintf(
+		"SELECT DISTINCT sender FROM messages WHERE %s ORDER BY sender ASC",
+		whereClause,
+	)
+
+	rows, err := a.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("クエリ失敗: %w", err)
+	}
+	defer rows.Close()
+
+	var senders []string
+	for rows.Next() {
+		var s string
+		if err := rows.Scan(&s); err == nil {
+			senders = append(senders, s)
+		}
+	}
+
+	if senders == nil {
+		senders = []string{}
+	}
+	return senders, nil
+}
+
 // GetDynamicChannels: ルールに基づいて、合致する「送信者(sender)」を重複なく抽出する
 func (a *App) GetDynamicChannels500(rules ChannelRules) ([]string, error) {
 
@@ -184,62 +242,67 @@ func (a *App) GetDynamicChannels500(rules ChannelRules) ([]string, error) {
 	return uniqueStrings(senders), nil
 }
 
-// ReloadAndGetWorkspaces: Wailsから呼ばれる「再読み込み ＋ 一覧生成」の合体技
-func (a *App) ReloadAndGetWorkspaces() ([]WorkspaceFolder, error) {
-	// 1. 設定ファイルを再ロード（内部変数を更新）
-	_, err := a.LoadChannelConfigs()
-	if err != nil {
-		return nil, err
-	}
-	// 2. 最新の設定に基づき、Slack風の階層リストを生成して返す
-	return a.GetWorkspaceList()
-}
-
-// uniqueStrings: 文字列スライスから重複を取り除く関数
-func uniqueStrings(input []string) []string {
-	// 🌟 マップを「見張り番」として使う (メモリ空間の効率化)
-	m := make(map[string]bool)
-	var result []string
-
-	for _, s := range input {
-		// すでにマップに登録されているか確認
-		if !m[s] {
-			m[s] = true
-			result = append(result, s)
-		}
-	}
-	return result
-}
-
-func (a *App) GetDynamicChannels(rules ChannelRules) ([]string, error) {
+// BuildWhereClause: ルールから SQL の WHERE 句と引数リストを生成する共通部品
+func (a *App) BuildWhereClause(rules ChannelRules, onlySender bool) (string, []interface{}) {
+	var mainConditions []string
 	var args []interface{}
-	var whereClause string
+	var orParts []string
 
-	/*
-	 */
+	// 1. ドメイン条件
+	if len(rules.Domains) > 0 {
+		var domainParts []string
+		for _, d := range rules.Domains {
+			if onlySender {
+				domainParts = append(domainParts, "sender LIKE ?")
+				args = append(args, "%"+d+"%")
+			} else {
+				domainParts = append(domainParts, "(sender LIKE ? OR recipient LIKE ?)")
+				args = append(args, "%"+d+"%", "%"+d+"%")
 
-	whereClause, args = a.BuildWhereClause(rules, false)
-	query := fmt.Sprintf(
-		"SELECT DISTINCT sender FROM messages WHERE %s ORDER BY sender ASC",
-		whereClause,
-	)
-
-	rows, err := a.db.Query(query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("クエリ失敗: %w", err)
-	}
-	defer rows.Close()
-
-	var senders []string
-	for rows.Next() {
-		var s string
-		if err := rows.Scan(&s); err == nil {
-			senders = append(senders, s)
+			}
 		}
+		orParts = append(orParts, "("+strings.Join(domainParts, " OR ")+")")
 	}
 
-	if senders == nil {
-		senders = []string{}
+	if len(rules.FromDomains) > 0 {
+		var fromParts []string
+		for _, d := range rules.FromDomains {
+			fromParts = append(fromParts, "sender LIKE ?")
+			args = append(args, "%"+d+"%")
+		}
+		orParts = append(orParts, "("+strings.Join(fromParts, " OR ")+")")
 	}
-	return senders, nil
+
+	// 2. キーワード条件
+	if len(rules.Keywords) > 0 {
+		var kwParts []string
+		for _, k := range rules.Keywords {
+			kwParts = append(kwParts, "(subject LIKE ? OR snippet LIKE ?)")
+			args = append(args, "%"+k+"%", "%"+k+"%")
+		}
+		orParts = append(orParts, "("+strings.Join(kwParts, " OR ")+")")
+	}
+
+	if len(orParts) > 0 {
+		mainConditions = append(mainConditions, "("+strings.Join(orParts, " OR ")+")")
+	}
+
+	// 3. 重要度条件
+	if rules.ImportanceMin > 0 {
+		mainConditions = append(mainConditions, "manual_importance >= ?")
+		args = append(args, rules.ImportanceMin)
+	}
+
+	if rules.IsUnreadOnly {
+		mainConditions = append(mainConditions, "is_read = 0")
+	}
+
+	// 条件がない場合は全件マッチ
+	whereClause := "1=1"
+	if len(mainConditions) > 0 {
+		whereClause = strings.Join(mainConditions, " AND ")
+	}
+
+	// fmt.Printf("WHERE: %s\nargs: %s\n\n", whereClause, args)
+	return whereClause, args
 }

@@ -15,6 +15,7 @@ export default function EmailView({
   onSummarize,
   onDelete,
   onChangeImportance,
+  onChangeManualImportance,
   daysLeft,
   fullBody,
   loadingBody, // 予備（スケルトン等を入れたい時に使用）
@@ -56,8 +57,15 @@ export default function EmailView({
             showRelated={showRelated}
           />
           <ImportancePicker
+            label="🤖 AI 判定"
             current={selectedMsg.importance}
+            //onChange={() => {}}
             onChange={onChangeImportance}
+          />
+          <ImportancePicker
+            label="✍️ 手動設定"
+            current={selectedMsg.manual_importance}
+            onChange={onChangeManualImportance}
           />
         </div>
       </div>

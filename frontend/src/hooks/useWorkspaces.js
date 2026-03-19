@@ -28,7 +28,7 @@ export function useWorkspaces({ enabled, onPickInitial }) {
       console.error("ワークスペース読み込み失敗:", e);
       setWorkspaces([]);
     }
-  }, [onPickInitial]);
+  }, []);
 
   const reloadFromJson = useCallback(async () => {
     try {

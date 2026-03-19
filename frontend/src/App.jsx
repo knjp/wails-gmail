@@ -133,15 +133,30 @@ function App() {
         //onPickInitial: setActiveTab,
     });
 
+    const handleChangeAImadeImportance = useCallback(async (level) => {
+        if (!selectedMsg) return;
+        try {
+            await api.changeAImadeImportance(selectedMsg.id, level);
+            setSelectedMsg({
+                ...selectedMsg,
+                importance: level
+            });
+            updateOne(selectedMsg.id, { importance: level });
+            console.log(`✅ 重要度を ${level} に変更しました`);
+        } catch (err) {
+            console.error("重要度の更新に失敗:", err);
+        }
+    }, [selectedMsg]);
+
     const handleManualImportance = useCallback(async (level) => {
         if (!selectedMsg) return;
         try {
             await api.setManualImportance(selectedMsg.id, level);
             setSelectedMsg({
                 ...selectedMsg,
-                importance: level
+                manual_importance: level
             });
-            updateOne(selectedMsg.id, { importance: level });
+            updateOne(selectedMsg.id, { manual_importance: level });
             console.log(`✅ 重要度を ${level} に変更しました`);
         } catch (err) {
             console.error("重要度の更新に失敗:", err);
@@ -373,7 +388,8 @@ function App() {
                         isSummarizing={isSummarizing}
                         onSummarize={handleManualSummarize}
                         onDelete={handleDelete}
-                        onChangeImportance={handleManualImportance}
+                        onChangeImportance={handleChangeAImadeImportance}
+                        onChangeManualImportance={handleManualImportance}
                         daysLeft={daysLeft}
                         fullBody={fullBody}
                         loadingBody={loadingBody}

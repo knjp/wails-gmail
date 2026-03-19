@@ -69,10 +69,14 @@ func (a *App) GetMessagesByChannel(channelID string) ([]MessageSummary, error) {
 // GetMessagesByRules: ルールに合致するメッセージをすべて取得する
 func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 	whereClause, args := a.BuildWhereClause(rules, false)
-	query := fmt.Sprintf("SELECT %s FROM messages WHERE %s ORDER BY timestamp DESC LIMIT 100", MessageSelectFields, whereClause)
+	query := fmt.Sprintf(`
+		SELECT %s FROM messages WHERE %s
+			ORDER BY timestamp DESC LIMIT 100`,
+		MessageSelectFields, whereClause,
+	)
 	rows, err := a.db.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("ルールクエリ失敗: %w", err)
+		return nil, fmt.Errorf("GetMessagesByRules: ルールクエリ失敗 %w", err)
 	}
 	defer rows.Close()
 
@@ -87,62 +91,6 @@ func (a *App) GetMessagesByRules(rules ChannelRules) ([]MessageSummary, error) {
 		msgs = []MessageSummary{}
 	}
 	return msgs, nil
-}
-
-// BuildWhereClause: ルールから SQL の WHERE 句と引数リストを生成する共通部品
-func (a *App) BuildWhereClause(rules ChannelRules, onlySender bool) (string, []interface{}) {
-	var mainConditions []string
-	var args []interface{}
-	var orParts []string
-
-	// 1. ドメイン条件
-	if len(rules.Domains) > 0 {
-		var domainParts []string
-		for _, d := range rules.Domains {
-			if onlySender {
-				domainParts = append(domainParts, "sender LIKE ?")
-				args = append(args, "%"+d+"%")
-			} else {
-				domainParts = append(domainParts, "(sender LIKE ? OR recipient LIKE ?)")
-				args = append(args, "%"+d+"%", "%"+d+"%")
-
-			}
-		}
-		orParts = append(orParts, "("+strings.Join(domainParts, " OR ")+")")
-	}
-
-	// 2. キーワード条件
-	if len(rules.Keywords) > 0 {
-		var kwParts []string
-		for _, k := range rules.Keywords {
-			kwParts = append(kwParts, "(subject LIKE ? OR snippet LIKE ?)")
-			args = append(args, "%"+k+"%", "%"+k+"%")
-		}
-		orParts = append(orParts, "("+strings.Join(kwParts, " OR ")+")")
-	}
-
-	if len(orParts) > 0 {
-		mainConditions = append(mainConditions, "("+strings.Join(orParts, " OR ")+")")
-	}
-
-	// 3. 重要度条件
-	if rules.ImportanceMin > 0 {
-		mainConditions = append(mainConditions, "manual_importance >= ?")
-		args = append(args, rules.ImportanceMin)
-	}
-
-	if rules.IsUnreadOnly {
-		mainConditions = append(mainConditions, "is_read = 0")
-	}
-
-	// 条件がない場合は全件マッチ
-	whereClause := "1=1"
-	if len(mainConditions) > 0 {
-		whereClause = strings.Join(mainConditions, " AND ")
-	}
-
-	// fmt.Printf("WHERE: %s\nargs: %s\n\n", whereClause, args)
-	return whereClause, args
 }
 
 func (a *App) MarkAsRead(id string) error {
@@ -506,9 +454,13 @@ func (a *App) processSingleMessage(msg *gmail.Message, useReplace bool) error {
 	return nil
 }
 
-func (a *App) SetManualImportance(id string, level int) error {
-	// 🌟 AIの判定を人間が「上書き」する
+func (a *App) ChangeAImadeImportance(id string, level int) error {
 	_, err := a.db.Exec("UPDATE messages SET importance = ? WHERE id = ?", level, id)
+	return err
+}
+
+func (a *App) SetManualImportance(id string, level int) error {
+	_, err := a.db.Exec("UPDATE messages SET manual_importance = ? WHERE id = ?", level, id)
 	return err
 }
 
