@@ -33,8 +33,21 @@ type MessageSummary struct {
 	Importance       int64  `json:"importance"`
 	ManualImportance int64  `json:"manual_importance"`
 	//Date       string `json:"date"`
-	Timestamp int64  `json:"timestamp"`
-	Deadline  string `json:"deadline"`
+	Timestamp     int64  `json:"timestamp"`
+	Deadline      string `json:"deadline"`
+	HasAttachment bool   `json:"has_attachment"`
+	AttachmentID  string `json:"attachment_id"`
+	FileName      string `json:"file_name"`
+}
+
+type MessageDetail struct {
+	Body        string           `json:"body"`
+	Attachments []AttachmentInfo `json:"attachments"`
+}
+
+type AttachmentInfo struct {
+	ID       string `json:"id"`
+	FileName string `json:"file_name"`
 }
 
 type Channel struct {
@@ -166,7 +179,8 @@ func (a *App) initDB() error {
 		is_read INTEGER DEFAULT 0,
 		importance INTEGER DEFAULT 0,
 		manual_importance INTEGER DEFAULT 0,
-		deadline DATETIME
+		deadline DATETIME,
+		has_attachment INTEGER DEFAULT 0
 	);`)
 
 	a.db.Exec("CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender);")

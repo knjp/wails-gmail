@@ -24,7 +24,7 @@ function App() {
     const [summary, setSummary] = useState("")
     const [isSummarizing, setIsSummarizing] = useState(false);
     const { messages, loading, loadMore, updateOne, removeOne, setMessages } = useMessages(activeTab);
-    const { fullBody, loadingBody, relatedMsgs, threadMsgs, selectMessage} = useMessageBody();
+    const { fullBody, attachments, loadingBody, relatedMsgs, threadMsgs, selectMessage} = useMessageBody();
     const {
         myAddress,
         showAuthModal, setShowAuthModal,
@@ -45,6 +45,19 @@ function App() {
     const sidebarRef = useRef(null);
     const [sidebarRect, setSidebarRect] = useState({ left:0, top: 0 , height: 0});
     const [sidebarWidth, setSidebarWidth] = useState(240);
+
+const [previewPdf, setPreviewPdf] = useState(null); // Base64 データを入れる
+const handleViewAttachment = async (msgId, attachId) => {
+//    setLoadingBody(true);
+    try {
+        const base64Data = await api.getAttachment(msgId, attachId);
+        setPreviewPdf(base64Data);
+    } catch (e) {
+        alert("PDFの取得に失敗しました");
+    } finally {
+//        setLoadingBody(false);
+    }
+};
 
     const handleManualSummarize = useCallback(async () => {
         if (!selectedMsg) return;
@@ -331,7 +344,6 @@ function App() {
                         )}
                     </div>
                 </ResizablePane>
-
                 <div className="main-content">
                     <EmailView
                         selectedMsg={selectedMsg}
@@ -346,6 +358,10 @@ function App() {
                         loadingBody={loadingBody}
                         onToggleRelated={toggleRelated}
                         showRelated={showRelated}
+                        attachments={attachments}
+                        previewPdf={previewPdf}
+                        setPreviewPdf={setPreviewPdf}
+                        onViewAttachment={handleViewAttachment}
                     />
                 </div>
 

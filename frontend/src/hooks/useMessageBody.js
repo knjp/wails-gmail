@@ -11,6 +11,7 @@ import { api } from "../api";
  */
 export function useMessageBody() {
   const [fullBody, setFullBody] = useState("");
+  const [attachments, setAttachments] = useState([]);
   const [loadingBody, setLoadingBody] = useState(false);
   const [relatedMsgs, setRelatedMsgs] = useState([]);
   const [threadMsgs, setThreadMsgs,] = useState([]);
@@ -31,8 +32,10 @@ export function useMessageBody() {
 
       // 1) 本文取得
       try {
-        const body = await api.getMessageBody(msg.id, { signal });
-        setFullBody(body);
+
+        const detail = await api.getMessageDetail(msg.id, { signal });
+        setFullBody(detail.body);
+        setAttachments(detail.attachments || []);
         onMarkRead?.(msg.id);     // 既読化（親から受け取る）
         api.markAsRead(msg.id);   // サーバ側更新（失敗してもUIの既読は維持）
 
@@ -53,5 +56,5 @@ export function useMessageBody() {
     []
   );
 
-  return { fullBody, loadingBody, relatedMsgs, threadMsgs, selectMessage };
+  return { fullBody, attachments, loadingBody, relatedMsgs, threadMsgs, selectMessage};
 }

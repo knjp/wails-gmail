@@ -161,31 +161,36 @@ func (a *App) MarkAsRead(id string) error {
 	return err
 }
 
-func (a *App) GetMessageBody(id string) (string, error) {
-	return a.GetMessageBodyWithContext(context.Background(), id)
+func (a *App) GetMessageDetail(id string) (*MessageDetail, error) {
+	//	fmt.Printf("GetmessageDetail(): %s\n\n\n\n", id)
+	return a.GetMessageDetailWithContext(context.Background(), id)
 }
 
-func (a *App) GetMessageBodyWithContext(ctx context.Context, id string) (string, error) {
-	// 1. まずは SQLite に本文が保存されていないか確認
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-	default:
-	}
+func (a *App) GetMessageDetailWithContext(ctx context.Context, id string) (*MessageDetail, error) {
 	var cachedBody string
 	err := a.db.QueryRowContext(ctx, "SELECT body FROM messages WHERE id = ?", id).Scan(&cachedBody)
 
-	// DBに本文（長さ1以上）があれば、それを即座に返す
-	if err == nil && len(cachedBody) > 0 {
-		fmt.Printf("Cache Hit! ID: %s (SQLiteから取得)\n", id)
-		return cachedBody, nil
-	}
+	/*
+		// DBに本文（長さ1以上）があれば、それを即座に返す
+		if err == nil && len(cachedBody) > 0 {
+			fmt.Printf("Cache Hit! ID: %s (SQLiteから取得)\n", id)
+			return cachedBody, nil
+		}
+	*/
 
-	// 2. なければ Gmail API から取得
 	fmt.Printf("Cache Miss! ID: %s (APIから取得中...)\n", id)
 	msg, err := a.srv.Users.Messages.Get("me", id).Format("full").Do()
 	if err != nil {
-		return "", err
+		return nil, err
+	}
+
+	var attachs []AttachmentInfo
+	a.findAttachmentsRecursive(msg.Payload.Parts, &attachs)
+
+	body := cachedBody
+	if len(body) == 0 {
+		body = a.extractBody(msg.Payload)
+		a.runBackgroundAnalysis(id, body)
 	}
 
 	// gmail で既読に変更
@@ -196,8 +201,6 @@ func (a *App) GetMessageBodyWithContext(ctx context.Context, id string) (string,
 		}
 	}()
 
-	body := a.extractBody(msg.Payload)
-
 	// 3. 次回のために SQLite に保存（キャッシュ）しておく
 	go func() {
 		_, err = a.db.Exec("UPDATE messages SET body = ? WHERE id = ?", body, id)
@@ -206,40 +209,62 @@ func (a *App) GetMessageBodyWithContext(ctx context.Context, id string) (string,
 		}
 	}()
 
+	return &MessageDetail{
+		Body:        body,
+		Attachments: attachs,
+	}, nil
+}
+
+func (a *App) findAttachmentsRecursive(parts []*gmail.MessagePart, results *[]AttachmentInfo) {
+	for _, part := range parts {
+		if part.Filename != "" && part.Body != nil && part.Body.AttachmentId != "" {
+			*results = append(*results, AttachmentInfo{
+				ID:       part.Body.AttachmentId,
+				FileName: part.Filename,
+			})
+		}
+		if len(part.Parts) > 0 {
+			a.findAttachmentsRecursive(part.Parts, results)
+		}
+	}
+}
+
+func (a *App) GetAttachment(msgID string, attachID string) (string, error) {
+	attach, err := a.srv.Users.Messages.Attachments.Get("me", msgID, attachID).Do()
+	if err != nil {
+		return "", err
+	}
+
+	decoded, err := base64.URLEncoding.DecodeString(attach.Data)
+	if err != nil {
+		return "", fmt.Errorf("デコード失敗: %v", err)
+	}
+
+	return base64.StdEncoding.EncodeToString(decoded), nil
+}
+
+func (a *App) runBackgroundAnalysis(id string, body string) {
 	var subject, sender string
 	a.db.QueryRow("SELECT subject, sender FROM messages WHERE id = ?", id).Scan(&subject, &sender)
 
-	// 🌟 これらを全部混ぜて「完全版ベクトル」にする 🌟
-	fullText := fmt.Sprintf("From: %s\nSubject: %s\nBody: %s", sender, subject, body)
-	limit := 4000
-	if len(fullText) > limit {
-		fullText = fullText[:limit]
-	}
-
-	go func(msgID string, text string) {
-		if text != "" {
-			// スニペット版をこの「完全版」で上書き！
-			err := a.SyncEmailVector(msgID, text)
-			if err != nil {
-				fmt.Printf("完全版AI学習失敗: %v\n", err)
-			}
+	// 1. AI学習（ベクトル化）
+	go func() {
+		fullText := fmt.Sprintf("From: %s\nSubject: %s\nBody: %s", sender, subject, body)
+		if len(fullText) > 4000 {
+			fullText = fullText[:4000]
 		}
-	}(id, fullText)
-
-	go func(msgID string, content string) {
-		if content != "" {
-			fmt.Printf("🤖 Ollama 締め切り抽出開始: %s\n", msgID)
-			err := a.ExtractDeadlines(msgID)
-			if err != nil {
-				fmt.Printf("Ollama 締め切り抽出失敗: %v\n", err)
-			} else {
-				fmt.Printf("✅ Ollama 締め切り抽出完了: %s\n", msgID)
-				// runtime.EventsEmit(a.ctx, "summary_ready", msgID)
-			}
+		if fullText != "" {
+			a.SyncEmailVector(id, fullText)
 		}
-	}(id, body)
+	}()
 
-	return body, nil
+	// 2. 締め切り抽出
+	go func() {
+		if body != "" {
+			fmt.Printf("🤖 Ollama 締め切り抽出開始: %s\n", id)
+			_ = a.ExtractDeadlines(id)
+		}
+	}()
 }
 
 // フロントエンドから呼ばれる関数
@@ -415,9 +440,25 @@ func (a *App) processSingleMessage(msg *gmail.Message, useReplace bool) error {
 		verb = "INSERT OR REPLACE"
 	}
 
-	sql := fmt.Sprintf(`%s INTO messages (id, thread_id, sender, recipient, all_involved_adresses, message_id, references_ids, subject, snippet, timestamp, is_read) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, verb)
+	sql := fmt.Sprintf(`%s INTO messages (
+		id,
+		thread_id,
+		sender,
+		recipient,
+		all_involved_adresses,
+		message_id,
+		references_ids,
+		subject,
+		snippet,
+		timestamp,
+		is_read
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		verb)
 
-	_, err := a.db.Exec(sql, msg.Id, msg.ThreadId, sender, combinedRecipient, allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead)
+	_, err := a.db.Exec(
+		sql, msg.Id, msg.ThreadId, sender, combinedRecipient,
+		allInvolved, msgID, references, subject, msg.Snippet, msg.InternalDate, isRead,
+	)
 	if err != nil {
 		return err
 	}

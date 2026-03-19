@@ -49,19 +49,27 @@ export const api = {
         return window?.go?.main?.App?.ReloadAndGetWorkspaces();
     },
 
-    getMessageBody: async (id) => {
+    getMessageDetail: async (id) => {
         if (isWeb) {
             // 🌐 Web版：サーバーから本文を fetch
-            const response = await fetch(`/api/message-body?id=${encodeURIComponent(id)}`);
+            const response = await fetch(`/api/message-detail?id=${encodeURIComponent(id)}`);
             if (!response.ok) throw new Error("本文取得失敗");
-            const bodyText = await response.text(); 
+            const bodyText = await response.json(); 
             console.log("📥 本文を受信しました (サイズ:", bodyText.length, ")");
             return bodyText; 
         }
         // 🖥️ Wails版：安全に呼び出す
-        return window?.go?.main?.App?.GetMessageBody(id);
+        return window?.go?.main?.App?.GetMessageDetail(id);
     },
 
+    getAttachment: async (msgId, attachId) => {
+        if (isWeb) {
+            const response = await fetch(`/api/attachment?msg_id=${msgId}&attach_id=${attachId}`);
+            if (!response.ok) throw new Error("添付取得失敗");
+            return await response.text(); // Base64 文字列として受け取る
+        }
+        return window?.go?.main?.App?.GetAttachment(msgId, attachId);
+    },
     syncMessages: async () => {
         if (isWeb) {
             // 🌐 Web版：サーバー側の API を叩く

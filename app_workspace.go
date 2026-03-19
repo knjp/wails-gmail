@@ -218,7 +218,7 @@ func (a *App) GetDynamicChannels(rules ChannelRules) ([]string, error) {
 	/*
 	 */
 
-	whereClause, args = a.BuildWhereClause(rules, true)
+	whereClause, args = a.BuildWhereClause(rules, false)
 	query := fmt.Sprintf(
 		"SELECT DISTINCT sender FROM messages WHERE %s ORDER BY sender ASC",
 		whereClause,

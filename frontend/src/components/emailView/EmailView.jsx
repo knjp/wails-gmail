@@ -20,6 +20,10 @@ export default function EmailView({
   loadingBody, // 予備（スケルトン等を入れたい時に使用）
   onToggleRelated,
   showRelated,
+  attachments,
+  previewPdf,
+  setPreviewPdf,
+  onViewAttachment,
 }) {
   if (!selectedMsg) {
     return <div className="empty-state">メールを選択してください</div>;
@@ -36,8 +40,10 @@ export default function EmailView({
         <EmailHeader
           selectedMsg={selectedMsg}
           isDirect={isDirect}
-          onToggleRelated={onToggleRelated}
-          showRelated={showRelated}
+          attachments={attachments}
+          previewPdf={previewPdf}
+          setPreviewPdf={setPreviewPdf}
+          onViewAttachment={onViewAttachment}
         />
         <div className="header-actions-container">
           <EmailActions
