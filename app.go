@@ -271,7 +271,66 @@ func (a *App) initGmailService() error {
 		return err
 	}
 	a.srv = srv
+
+	go func() {
+		err := a.EnsureParentLabel()
+		if err != nil {
+			fmt.Printf("⚠️ 起動時ラベルチェック失敗: %v\n", err)
+		}
+	}()
+
 	return nil
+}
+
+// EnsureParentLabel: 起動時に "myWails" 親ラベルを確保する
+func (a *App) EnsureParentLabel() error {
+	labels, err := a.srv.Users.Labels.List("me").Do()
+	if err != nil {
+		return err
+	}
+
+	// 🌟 既存のラベルを全走査
+	parentExists := false
+	for _, l := range labels.Labels {
+		if l.Name == "myWails" {
+			parentExists = true
+			break
+		}
+	}
+
+	// myWails がなければ作成する
+	if !parentExists {
+		_, err = a.srv.Users.Labels.Create("me", &gmail.Label{
+			Name:                "myWails",
+			LabelListVisibility: "labelShow",
+		}).Do()
+		if err != nil {
+			fmt.Printf("親ラベル作成失敗: %v\n", err)
+			return err
+		}
+		fmt.Println("✅ 親ラベル 'myWails' を新設しました")
+	}
+	return nil
+}
+
+func (a *App) EnsureSubLabel(wsName string) (string, error) {
+	year := time.Now().Year()
+	// 🌟 スラッシュで繋ぐだけで Gmail が階層化してくれる
+	fullPath := fmt.Sprintf("myWails/%s/%d", wsName, year)
+
+	// 全ラベルを取得して存在確認
+	res, _ := a.srv.Users.Labels.List("me").Do()
+	for _, l := range res.Labels {
+		if l.Name == fullPath {
+			return l.Id, nil
+		}
+	}
+	// なければ新規作成
+	created, err := a.srv.Users.Labels.Create("me", &gmail.Label{Name: fullPath}).Do()
+	if err != nil {
+		return "", err
+	}
+	return created.Id, nil
 }
 
 func (a *App) startBackgroundTasks() {

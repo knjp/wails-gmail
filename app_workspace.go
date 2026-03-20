@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"google.golang.org/api/gmail/v1"
 )
 
 // ChannelRules: メールの抽出条件（素材）を定義
@@ -306,3 +308,26 @@ func (a *App) BuildWhereClause(rules ChannelRules, onlySender bool) (string, []i
 	// fmt.Printf("WHERE: %s\nargs: %s\n\n", whereClause, args)
 	return whereClause, args
 }
+
+func (a *App) ApplyLabelByWorkspace(msgID string, wsName string) error {
+	labelID, err := a.EnsureSubLabel(wsName)
+	if err != nil {
+		return err
+	}
+
+	// 🌟 Modify でラベルをペタッと貼る
+	req := &gmail.BatchModifyMessagesRequest{
+		Ids:         []string{msgID},
+		AddLabelIds: []string{labelID},
+	}
+	return a.srv.Users.Messages.BatchModify("me", req).Do()
+}
+
+/*
+func (a *App) AddTTLAndLabel(msgID string, days int) error {
+	labelName := fmt.Sprintf("myWails/autodelete%d", days)
+	// (EnsureSubLabel と同様のロジックで ID を取得)
+	// その後、Modify でラベルを付与
+	return nil // 実装は ApplyLabel... とほぼ共通
+}
+*/

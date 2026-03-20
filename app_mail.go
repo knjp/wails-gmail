@@ -439,6 +439,21 @@ func (a *App) processSingleMessage(msg *gmail.Message, useReplace bool) error {
 		return err
 	}
 
+	go func() {
+		// 🌟 1. 全ワークスペースの設定を取得
+		configs, _ := a.LoadChannelConfigs()
+
+		for _, conf := range configs {
+			// 🌟 2. このメールがそのワークスペースのルールに合致するか判定
+			// ※ 判定用に MessageSummary に変換するか、簡易的な判定関数を作ります
+			if a.isMatchRule(sender, subject, msg.Snippet, conf.Rules) {
+				// 🌟 3. 合致したら「年次ラベル」を貼る！
+				// 例: myWails/MyWork/2026
+				a.ApplyLabelByWorkspace(msg.Id, conf.Name)
+				break // 1つの主要ワークスペースに決まれば終了
+			}
+		}
+	}()
 	// 4. AI学習（非同期）
 	go func() {
 		if msg.Snippet == "" && subject == "" {
@@ -452,6 +467,55 @@ func (a *App) processSingleMessage(msg *gmail.Message, useReplace bool) error {
 	}()
 
 	return nil
+}
+
+// isMatchRule: メールが特定のワークスペースのルールに合致するか判定する
+func (a *App) isMatchRule(sender, subject, snippet string, rules ChannelRules) bool {
+	// 1. 送り主ドメイン限定 (from_domains)
+	if len(rules.FromDomains) > 0 {
+		match := false
+		for _, d := range rules.FromDomains {
+			if strings.Contains(sender, d) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			return false
+		} // 送り主が違えば即脱落
+	}
+
+	// 2. ドメイン (domains) - 送り主またはキーワード的に含まれるか
+	if len(rules.Domains) > 0 {
+		match := false
+		for _, d := range rules.Domains {
+			if strings.Contains(sender, d) || strings.Contains(subject, d) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+
+	// 3. キーワード (keywords) - 件名か本文(スニペット)に含まれるか
+	if len(rules.Keywords) > 0 {
+		match := false
+		for _, k := range rules.Keywords {
+			if strings.Contains(strings.ToLower(subject), strings.ToLower(k)) ||
+				strings.Contains(strings.ToLower(snippet), strings.ToLower(k)) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			return false
+		}
+	}
+
+	// 全ての関門を突破したら「合格」
+	return true
 }
 
 func (a *App) ChangeAImadeImportance(id string, level int) error {
